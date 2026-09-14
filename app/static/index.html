@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>blog-api</title>
+<!--
+  这是整个前端：一个文件，没有框架、没有构建、没有 npm。
+  它由 FastAPI 自己在 /static/ 下对外提供（见 app/main.py）。
+
+  为什么这样最省事：页面和接口都来自 http://127.0.0.1:8000，
+  浏览器认为它们【同源】，所以我们一行 CORS 配置都不用写。
+-->
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --line:#e5e7eb;
+    --text:#1f2328; --muted:#6b7280; --brand:#4f46e5; --brand-dark:#4338ca;
+    --danger:#dc2626; --radius:10px;
+  }
+  *{box-sizing:border-box}
+
+  /* 【别删这条】让 HTML 的 hidden 属性真正管用。
+     hidden 生效靠的是浏览器默认样式里的一条 `[hidden]{display:none}`，
+     而【作者样式表永远压过浏览器默认样式表】（比的是"来源"，跟选择器权重无关）。
+     所以只要给元素自己写了 display —— .modal 的 flex、label.field 的 block ——
+     那个 `[hidden]` 就被顶掉了，元素带着 hidden 也照样显示，表现为"弹窗关不掉"。
+     与其在每个类上都补 :not([hidden])，不如这里统一压一道。
+     这里用 !important 是正当的：它的意图本来就是"压过所有其他 display 声明"。 */
+  [hidden]{display:none !important}
+
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+  }
+  .wrap{max-width:820px; margin:0 auto; padding:0 16px}
+  .spacer{flex:1}
+  .muted{color:var(--muted)}
+  .err{color:var(--danger); font-size:13px; min-height:18px; margin:6px 0}
+  .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+
+  /* 顶栏 */
+  .topbar{position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line); z-index:10}
+  .topbar .wrap{display:flex; align-items:center; gap:10px; height:56px}
+  .logo{font-size:17px; font-weight:650; margin:0; cursor:pointer; letter-spacing:.02em}
+
+  /* 按钮 */
+  .btn{border:1px solid transparent; background:var(--brand); color:#fff; padding:7px 14px;
+       border-radius:8px; font:inherit; font-size:14px; cursor:pointer; transition:.15s}
+  .btn:hover{background:var(--brand-dark)}
+  .btn:disabled{opacity:.45; cursor:not-allowed; background:#9ca3af}
+  .btn.ghost{background:#fff; color:var(--text); border-color:var(--line)}
+  .btn.ghost:hover{background:#f3f4f6}
+  .btn.ghost:disabled{background:#fff; color:var(--muted)}
+  .btn.danger{background:var(--danger)}
+  .btn.sm{padding:4px 10px; font-size:13px}
+
+  /* 输入 */
+  .input{border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 10px;
+         font:inherit; font-size:14px; outline:none; transition:.15s}
+  .input:focus{border-color:var(--brand); box-shadow:0 0 0 3px rgba(79,70,229,.13)}
+  textarea.input{resize:vertical; line-height:1.7}
+
+  /* 工具栏 */
+  .toolbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:20px 0 14px}
+  .toolbar .input{flex:0 0 auto}
+  #inp-q{width:200px}
+
+  /* 文章卡片 */
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+        padding:15px 17px; margin-bottom:11px; cursor:pointer; transition:.15s}
+  .card:hover{border-color:#c9cdd6; transform:translateY(-1px); box-shadow:0 3px 10px rgba(15,20,40,.06)}
+  .card-head{display:flex; align-items:baseline; gap:10px}
+  .card-head h3{margin:0; font-size:16px; font-weight:600; flex:1}
+  .meta{color:var(--muted); font-size:13px; margin:7px 0 0}
+  .pill{display:inline-block; padding:1px 8px; border-radius:999px; background:#eef2ff;
+        color:var(--brand); font-size:12px; white-space:nowrap}
+
+  /* 分页 */
+  .pager{display:flex; align-items:center; gap:12px; justify-content:center; margin:22px 0 40px}
+
+  /* 详情 */
+  .detail{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+          padding:24px; margin-top:14px}
+  .detail h2{margin:0 0 8px; font-size:23px; line-height:1.35}
+  .content{margin-top:18px; white-space:pre-wrap; word-break:break-word}
+
+  /* 编辑器表单 */
+  .editor{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+          padding:22px; margin-top:14px}
+  label.field{display:block; margin-bottom:14px; font-size:13px; color:var(--muted)}
+  label.field .input{width:100%; margin-top:5px}
+
+  /* 弹窗 */
+  .modal{position:fixed; inset:0; background:rgba(15,17,20,.45);
+         display:flex; align-items:center; justify-content:center; z-index:40}
+  .modal-box{background:#fff; border-radius:12px; padding:22px; width:340px; max-width:92vw}
+  .modal-box h2{margin:0 0 16px; font-size:18px}
+
+  /* 提示条 */
+  .toast{position:fixed; left:50%; bottom:28px; transform:translateX(-50%);
+         background:#1f2328; color:#fff; padding:9px 16px; border-radius:8px;
+         font-size:14px; z-index:50}
+  .foot{margin:0 0 32px; font-size:13px; text-align:center}
+  code{background:#eef0f3; padding:1px 5px; border-radius:4px; font-size:13px}
+
+  /* 评论（阶段15） */
+  .comments{margin-top:20px}
+  .comments h3{margin:0 0 12px; font-size:16px}
+  .comments textarea{width:100%}
+  .cmt{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+       padding:12px 14px; margin-top:10px}
+  .cmt-head{display:flex; align-items:center; gap:10px; font-size:13px}
+  .cmt-head .btn{margin-left:auto}
+  .cmt-body{margin-top:7px; white-space:pre-wrap; word-break:break-word}
+
+  /* 阶段16：回复。缩进 + 左侧竖线，一眼看出从属关系 */
+  .cmt-reply{margin-left:22px; border-left:3px solid var(--line); background:transparent}
+  .reply-box{margin-top:10px}
+  .reply-box textarea{width:100%}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <h1 class="logo" id="btn-home">blog-api</h1>
+    <div class="spacer"></div>
+    <span id="hello" class="muted"></span>
+    <button class="btn" id="btn-login">登录</button>
+    <button class="btn ghost" id="btn-logout" hidden>退出</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ========== 视图一：文章列表 ========== -->
+  <section id="view-list">
+    <div class="toolbar">
+      <input class="input" id="inp-q" placeholder="搜索标题…">
+      <select class="input" id="sel-published">
+        <option value="">全部</option>
+        <option value="true">已发布</option>
+        <option value="false">草稿</option>
+      </select>
+      <button class="btn ghost" id="btn-search">搜索</button>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="btn-mine" hidden>我的文章</button>
+      <button class="btn" id="btn-new" hidden>写文章</button>
+    </div>
+    <div id="list"></div>
+    <div class="pager">
+      <button class="btn ghost sm" id="btn-prev">上一页</button>
+      <span class="muted" id="pageinfo"></span>
+      <button class="btn ghost sm" id="btn-next">下一页</button>
+    </div>
+  </section>
+
+  <!-- ========== 视图二：文章详情 ========== -->
+  <section id="view-detail" hidden></section>
+
+  <!-- ========== 视图三：写 / 改文章 ========== -->
+  <section id="view-editor" hidden></section>
+
+</main>
+
+<footer class="wrap foot muted">
+  前端只有这一个 HTML 文件，由 FastAPI 在 <code>/static/</code> 下直接提供 —— 同源，所以不需要 CORS。
+</footer>
+
+<!-- 登录 / 注册弹窗 -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-box">
+    <h2 id="modal-title">登录</h2>
+    <form id="form-auth">
+      <label class="field">用户名
+        <input class="input" name="username" autocomplete="username"
+               minlength="3" maxlength="50" placeholder="3~50 字" required>
+      </label>
+      <label class="field" id="row-email" hidden>邮箱
+        <input class="input" name="email" type="email" placeholder="要填一个合法的邮箱地址">
+      </label>
+      <label class="field">密码
+        <input class="input" name="password" type="password" autocomplete="current-password"
+               minlength="6" maxlength="72" placeholder="6~72 字" required>
+      </label>
+      <p class="err" id="auth-msg"></p>
+      <div class="row">
+        <button class="btn" type="submit">确定</button>
+        <button class="btn ghost" type="button" id="btn-switch">没有账号？注册</button>
+        <button class="btn ghost" type="button" id="btn-close-modal">取消</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   0. 小工具
+   ══════════════════════════════════════════════════════════════ */
+
+// 把用户内容里的 < > & " ' 转义后再插进 HTML。
+// 这一步【不能省】：文章的标题和正文都是用户自己写的，
+// 不转义就直接 innerHTML，别人发一篇标题是 <img onerror=...> 的文章就能在所有访客浏览器里执行脚本。
+// 注意：防 XSS 是【前端渲染时】的责任——后端只负责返回 JSON，它管不着你怎么把它插进页面。
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, m =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m]));
+}
+
+function fmt(iso){
+  return new Date(iso).toLocaleString('zh-CN', { hour12: false });
+}
+
+let toastTimer;
+function toast(text){
+  const el = document.getElementById('toast');
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2400);
+}
+
+const $ = id => document.getElementById(id);
+
+/* ══════════════════════════════════════════════════════════════
+   1. 会话：token 存哪儿
+   ══════════════════════════════════════════════════════════════ */
+
+// 存 localStorage：刷新页面后还在，关掉标签页也在。
+// （代价：任何能在这台机器上跑 JS 的代码都读得到它。真上生产更稳妥的是 httpOnly Cookie，
+//   但那样后端要改成发 Cookie、还要考虑 CSRF——本项目先用最直观的 localStorage。）
+
+function getToken()    { return localStorage.getItem('token'); }
+function getUsername() { return localStorage.getItem('username'); }
+function saveSession(token, username){
+  localStorage.setItem('token', token);
+  localStorage.setItem('username', username);
+}
+function clearSession(){
+  localStorage.removeItem('token');
+  localStorage.removeItem('username');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   2. 请求封装：全站只从这里发请求
+   ══════════════════════════════════════════════════════════════ */
+
+// FastAPI 报错时响应体形如 {"detail": "..."}；
+// 但 422（参数校验失败）的 detail 是一个【数组】，元素形如 {loc, msg, type}。
+// 两种形状都要认得，否则页面上只会显示 "HTTP 422"，看不出到底哪里错了。
+function pickError(data, status){
+  if (!data) return 'HTTP ' + status;
+  const d = data.detail;
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d)) return d.map(e => e.msg).join('；');
+  return 'HTTP ' + status;
+}
+
+async function api(path, opts = {}){
+  const { method = 'GET', body, form, auth = false } = opts;
+  const headers = {};
+
+  if (auth && getToken()){
+    // 这就是阶段8 学的东西：把 token 放进这个请求头，后端就知道"我是谁"
+    headers['Authorization'] = 'Bearer ' + getToken();
+  }
+
+  let payload;
+  if (form){
+    // 【重要】登录接口要的是【表单】，不是 JSON！
+    // 后端用的是 OAuth2PasswordRequestForm，它只认
+    // Content-Type: application/x-www-form-urlencoded。
+    // 发 JSON 会被判 422，而且报错信息不容易看出原因——这是很多人卡住的地方。
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    payload = new URLSearchParams(form);
+  } else if (body !== undefined){
+    headers['Content-Type'] = 'application/json';
+    payload = JSON.stringify(body);
+  }
+
+  const res = await fetch(path, { method, headers, body: payload });
+
+  // token 过期 / 无效：后端会回 401，这里顺手把本地会话清掉
+  if (res.status === 401){
+    clearSession();
+    renderTopbar();
+  }
+
+  // 【重要】204 表示"成功但没有响应体"——直接 res.json() 会抛错。
+  // 我们的计数接口 POST /posts/{id}/views 就是 204，这里是专门为它准备的。
+  if (res.status === 204) return null;
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(pickError(data, res.status));
+  return data;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   3. 视图切换（只有三个，不值得上路由库）
+   ══════════════════════════════════════════════════════════════ */
+
+function show(name){
+  ['list', 'detail', 'editor'].forEach(v => {
+    $('view-' + v).hidden = (v !== name);
+  });
+  window.scrollTo({ top: 0 });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   4. 顶栏
+   ══════════════════════════════════════════════════════════════ */
+
+function renderTopbar(){
+  const logged = !!getToken();
+  $('hello').textContent = logged ? getUsername() : '';
+  $('btn-login').hidden  = logged;
+  $('btn-logout').hidden = !logged;
+  $('btn-new').hidden    = !logged;
+  $('btn-mine').hidden   = !logged;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   5. 文章列表
+   ══════════════════════════════════════════════════════════════ */
+
+const state = { skip: 0, limit: 5, total: 0, q: '', published: '', mine: false };
+
+async function loadList(){
+  const el = $('list');
+  el.innerHTML = '<p class="muted">加载中…</p>';
+
+  const params = new URLSearchParams({ skip: state.skip, limit: state.limit });
+  if (state.q)         params.set('q', state.q);
+  if (state.published) params.set('published', state.published);
+
+  const path = state.mine ? '/posts/mine' : '/posts';
+  try{
+    // mine 需要登录（后端靠 Authorization 头认人），所以要 auth: true
+    const data = await api(path + '?' + params, { auth: state.mine });
+    state.total = data.total;
+    renderList(data);
+  }catch(err){
+    el.innerHTML = '<p class="err">加载失败：' + esc(err.message) + '</p>';
+  }
+}
+
+function renderList(page){
+  const el = $('list');
+
+  if (page.items.length === 0){
+    el.innerHTML = '<p class="muted">这里还没有文章。</p>';
+  } else {
+    el.innerHTML = page.items.map(p => `
+      <article class="card" data-id="${p.id}">
+        <div class="card-head">
+          <h3>${esc(p.title)}</h3>
+          <span class="pill">${p.views} 次浏览</span>
+        </div>
+        <p class="meta">
+          ${esc(p.author ? p.author.username : '佚名')}
+          · ${fmt(p.created_at)}
+          · ${p.published ? '已发布' : '草稿'}
+        </p>
+      </article>`).join('');
+
+    el.querySelectorAll('.card').forEach(c => {
+      c.onclick = () => openDetail(Number(c.dataset.id));
+    });
+  }
+
+  const from = state.total === 0 ? 0 : state.skip + 1;
+  const to   = Math.min(state.skip + state.limit, state.total);
+  $('pageinfo').textContent = from + '-' + to + ' / 共 ' + state.total + ' 篇';
+  $('btn-prev').disabled = state.skip === 0;
+  $('btn-next').disabled = state.skip + state.limit >= state.total;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   6. 文章详情 —— 前端最值得看的一段
+   ══════════════════════════════════════════════════════════════ */
+
+async function openDetail(id){
+  show('detail');
+  const el = $('view-detail');
+  el.innerHTML = '<p class="muted">加载中…</p>';
+
+  try{
+    // ① 读：只读接口，一个字节都不写库
+    const post = await api('/posts/' + id);
+    renderDetail(post);
+
+    // ② 写：单独发一次 POST 记一次浏览。
+    //    这正是阶段12 的设计——写动作不搭 GET 的车。
+    //    浏览器刷新页面 = 重新走一遍这里 = 又记一次（防刷要治的就是它）。
+    await api('/posts/' + id + '/views', { method: 'POST' });
+
+    // ③ 再读一次，拿服务端的真实数字。
+    //    为什么要再读：② 返回的是 204，没有响应体，手上这个 post 还是【记账之前】的值。
+    //    （真实项目里前端本地 +1 显示就够了，省一次请求；
+    //      这里选择再读一次，是为了让"服务端真实的数字"直接可见——
+    //      待会儿做防刷时，刷新页面数字还涨不涨，一眼就能看出来。）
+    const fresh = await api('/posts/' + id);
+    const box = $('detail-views');
+    if (box) box.textContent = fresh.views;
+
+  }catch(err){
+    el.innerHTML = '<p class="err">' + esc(err.message) + '</p>';
+    return;                      // 文章都没加载出来，就别再去拉评论了
+  }
+
+  // ④ 评论：单独一次请求，故意放在最后、并且【不在上面的 try 里】。
+  //    这样评论接口慢或挂了，都只影响评论区，文章照样看得见。
+  loadComments(id);
+}
+
+function renderDetail(p){
+  // 前端判断"是不是我写的"，只是为了【决定显不显示按钮】。
+  // 真正的权限由后端把关（不是自己的文章，PATCH / DELETE 会回 403）——
+  // 前端把按钮藏起来，从来不等于安全。
+  const isMine = getToken() && p.author && p.author.username === getUsername();
+
+  $('view-detail').innerHTML = `
+    <button class="btn ghost sm" id="btn-back">← 返回列表</button>
+    <article class="detail">
+      <h2>${esc(p.title)}</h2>
+      <p class="meta">
+        ${esc(p.author ? p.author.username : '佚名')}
+        · ${fmt(p.created_at)}
+        · <span class="pill"><span id="detail-views">${p.views}</span> 次浏览</span>
+        · ${p.published ? '已发布' : '草稿'}
+      </p>
+      <div class="content">${esc(p.content)}</div>
+      ${isMine ? `
+        <div class="row" style="margin-top:22px">
+          <button class="btn ghost sm" id="btn-edit">编辑</button>
+          <button class="btn danger sm" id="btn-del">删除</button>
+        </div>` : ''}
+    </article>
+
+    <!-- 阶段15：评论区。它是页面的一部分，但【数据来自另一个接口】——
+         文章和评论是两种资源，各查各的，互不阻塞。 -->
+    <section class="comments">
+      <h3>评论 <span class="muted" id="comment-count"></span></h3>
+      <textarea class="input" id="inp-comment" rows="3" placeholder="说点什么…"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="btn-comment">发表评论</button>
+        <span class="muted" id="comment-hint"></span>
+      </div>
+      <div id="comment-list"></div>
+    </section>`;
+
+  $('btn-back').onclick = () => { show('list'); loadList(); };
+
+  const be = $('btn-edit');
+  if (be) be.onclick = () => openEditor(p);
+
+  const bd = $('btn-del');
+  if (bd) bd.onclick = () => removePost(p.id);
+
+  // 没登录照样能看评论，只是不能发 —— 所以不藏输入框，给一行提示就好
+  const hint = $('comment-hint');
+  if (hint) hint.textContent = getToken() ? '' : '需要登录后才能评论';
+
+  $('btn-comment').onclick = () => submitComment(p.id);
+}
+
+/* ── 阶段15：评论的三个动作（拉取 / 发表 / 删除）────────────────
+   它们的共同点：只动 #comment-list 和 #comment-count 这两块，绝不碰文章本身。
+   所以评论接口出问题时，文章照样能读 —— 这是"分而治之"的直接收益。 */
+
+async function loadComments(postId){
+  const box = $('comment-list');
+  if (!box) return;
+
+  box.innerHTML = '<p class="muted">评论加载中…</p>';
+  try{
+    // 公开接口，不需要 token。limit 给大些：本阶段先不做评论翻页（后端是支持的）
+    const data = await api('/posts/' + postId + '/comments?limit=50');
+    renderComments(postId, data);
+  }catch(err){
+    box.innerHTML = '<p class="err">评论加载失败：' + esc(err.message) + '</p>';
+  }
+}
+
+// 正在回复哪条评论（null = 没有）。前端要记这个状态，因为
+// "回复哪条"只有客户端知道 —— 后端拿不到，也没法猜。
+let replyTo = null;
+
+function renderComments(postId, data){
+  replyTo = null;                       // 整块重画时，把"正在回复谁"的状态一并清掉
+  $('comment-count').textContent = data.total ? '（' + data.total + '）' : '';
+
+  const box = $('comment-list');
+  if (!data.items.length){
+    box.innerHTML = '<p class="muted" style="margin-top:12px">还没有评论，来说两句。</p>';
+    return;
+  }
+
+  // 后端返回的 items 已经是"两层树"了（顶层评论 + replies），这里照结构渲染即可，
+  // 前端【不需要】自己拼树 —— 拼树的活儿在 SQL 和 Pydantic 那边就干完了。
+  box.innerHTML = data.items.map(c => commentHtml(c, 0)).join('');
+
+  if (data.total > data.items.length){
+    box.innerHTML += '<p class="muted">只显示了前 ' + data.items.length + ' 条，共 ' + data.total + ' 条。</p>';
+  }
+
+  /* 事件委托：绑在容器上，而不是挨个给按钮 onclick。
+     理由很实在 —— 评论区会【反复重建】（每次发完评论都整体重画），
+     回复框还是事后才插进 DOM 的。一个个绑等于每次都要重新遍历一遍，
+     漏一个就是一个点了没反应的按钮。绑在容器上，只要按钮在容器里就永远有效。
+
+     靠 data-* 分辨点的是哪一种按钮，"是谁"则由 data 的值带出来。 */
+  box.onclick = (ev) => {
+    const btn = ev.target.closest('button');   // 点到文字上也能找到所属按钮
+    if (!btn) return;
+
+    if (btn.dataset.del)    removeComment(Number(btn.dataset.del), postId);
+    if (btn.dataset.reply)  toggleReplyBox(postId, Number(btn.dataset.reply), btn.dataset.user);
+    if (btn.dataset.send)   submitReply(postId, Number(btn.dataset.send));
+    if (btn.dataset.cancel) closeReplyBox();
+  };
+}
+
+/* 一条评论（含它下面的回复）的 HTML。
+   depth 只用来决定加不加缩进样式 —— 后端保证最多两层，所以它的取值只会是 0 或 1。 */
+function commentHtml(c, depth){
+  const name = c.author ? c.author.username : '已注销用户';
+  // 和文章的 isMine 同理：只用来决定画不画"删除"按钮，安全依然由后端把关
+  const mine = getToken() && c.author && c.author.username === getUsername();
+  const replies = (c.replies || []).map(r => commentHtml(r, depth + 1)).join('');
+
+  return `
+    <div class="cmt${depth ? ' cmt-reply' : ''}" data-cmt="${c.id}">
+      <div class="cmt-head">
+        <b>${esc(name)}</b>
+        <span class="muted">${fmt(c.created_at)}</span>
+        <button class="btn ghost sm" data-reply="${c.id}" data-user="${esc(name)}">回复</button>
+        ${mine ? `<button class="btn danger sm" data-del="${c.id}">删除</button>` : ''}
+      </div>
+      <div class="cmt-body">${esc(c.content)}</div>
+      ${replies}
+    </div>`;
+}
+
+/* 回复框：就地插在目标评论下面（而不是弹窗）。
+   这样"我在回复哪条"一眼能看出来 —— 状态可见，是交互设计里最省事的一种正确。 */
+function toggleReplyBox(postId, commentId, username){
+  document.querySelectorAll('.reply-box').forEach(el => el.remove());   // 同时只留一个
+  if (replyTo === commentId){ replyTo = null; return; }                 // 再点一次 = 收起
+
+  if (!getToken()){ toast('请先登录'); openModal('login'); return; }
+
+  replyTo = commentId;
+  const host = document.querySelector('[data-cmt="' + commentId + '"]');
+  if (!host) return;
+
+  const box = document.createElement('div');
+  box.className = 'reply-box';
+  box.innerHTML = `
+    <textarea class="input" rows="2" placeholder="回复 @${esc(username)}…"></textarea>
+    <div class="row" style="margin-top:6px">
+      <button class="btn sm" data-send="${commentId}">回复</button>
+      <button class="btn ghost sm" data-cancel="1">取消</button>
+    </div>`;
+  host.appendChild(box);
+  box.querySelector('textarea').focus();
+}
+
+function closeReplyBox(){
+  document.querySelectorAll('.reply-box').forEach(el => el.remove());
+  replyTo = null;
+}
+
+/* 顶层评论和回复走的是【同一个接口】，区别只在 body 里有没有 parent_id。
+   所以这里也只有一个函数 —— 和后端"没有开第二个接口"是对称的。
+   真开两个函数反而会露出马脚：登录检查、错误提示、刷新列表都是同一套。 */
+async function postComment(postId, content, parentId){
+  try{
+    await api('/posts/' + postId + '/comments', {
+      method: 'POST',
+      // 只传 content 和 parent_id：
+      //   post_id  走 URL，author_id 由后端从 token 认 —— 契约里根本没这两个字段；
+      //   parent_id 则必须由前端传，"回复的是哪条"只有客户端知道。
+      body: { content, parent_id: parentId ?? null },
+      auth: true,
+    });
+    toast(parentId ? '已回复' : '已发表');
+    closeReplyBox();
+    loadComments(postId);      // 重新拉一遍，显示的是"服务端真实的列表"
+    return true;
+  }catch(err){
+    toast(err.message);
+    return false;
+  }
+}
+
+async function submitComment(postId){
+  if (!getToken()){ toast('请先登录'); openModal('login'); return; }
+
+  const ta = $('inp-comment');
+  const content = ta.value.trim();
+  if (!content){ toast('评论不能为空'); return; }
+
+  if (await postComment(postId, content, null)) ta.value = '';
+}
+
+async function submitReply(postId, commentId){
+  const box = document.querySelector('.reply-box');
+  if (!box) return;
+
+  const content = box.querySelector('textarea').value.trim();
+  if (!content){ toast('回复不能为空'); return; }
+
+  await postComment(postId, content, commentId);
+}
+
+async function removeComment(id, postId){
+  if (!confirm('删除这条评论？（它下面的回复会一起删掉）')) return;
+  try{
+    await api('/comments/' + id, { method: 'DELETE', auth: true });
+    toast('已删除');
+    loadComments(postId);
+  }catch(err){
+    toast(err.message);
+  }
+}
+
+async function removePost(id){
+  if (!confirm('确定删除这篇文章？删了就没了。')) return;
+  try{
+    await api('/posts/' + id, { method: 'DELETE', auth: true });
+    toast('已删除');
+    show('list');
+    loadList();
+  }catch(err){
+    toast(err.message);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   7. 写 / 改文章
+   ══════════════════════════════════════════════════════════════ */
+
+function openEditor(post){
+  show('editor');
+  const editing = !!post;
+
+  $('view-editor').innerHTML = `
+    <button class="btn ghost sm" id="btn-back2">← 返回</button>
+    <form class="editor" id="form-post">
+      <label class="field">标题
+        <input class="input" name="title" maxlength="100" required
+               value="${esc(post ? post.title : '')}">
+      </label>
+      <label class="field">正文
+        <textarea class="input" name="content" rows="10" required>${esc(post ? post.content : '')}</textarea>
+      </label>
+      <label class="field row" style="color:var(--text)">
+        <input type="checkbox" name="published" ${post && post.published ? 'checked' : ''}>
+        发布（不勾就是草稿）
+      </label>
+      <div class="row">
+        <button class="btn" type="submit">${editing ? '保存' : '创建'}</button>
+        <span class="err" id="editor-msg"></span>
+      </div>
+    </form>`;
+
+  $('btn-back2').onclick = () => { show('list'); loadList(); };
+
+  $('form-post').onsubmit = async ev => {
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    const payload = {
+      title: f.get('title').trim(),
+      content: f.get('content').trim(),
+      published: f.get('published') === 'on',
+    };
+
+    try{
+      if (editing){
+        // PATCH：只发改动过的字段也合法，这里图省事全发了
+        await api('/posts/' + post.id, { method: 'PATCH', body: payload, auth: true });
+        toast('已保存');
+      } else {
+        await api('/posts', { method: 'POST', body: payload, auth: true });
+        toast('已创建');
+        state.mine = true;                       // 切到"我的文章"，这样就看得见刚写的
+        $('btn-mine').textContent = '所有文章';
+      }
+      state.skip = 0;
+      show('list');
+      loadList();
+    }catch(err){
+      $('editor-msg').textContent = err.message;
+    }
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   8. 登录 / 注册
+   ══════════════════════════════════════════════════════════════ */
+
+function openModal(mode){
+  $('modal').hidden = false;
+  $('modal').dataset.mode = mode;
+  $('modal-title').textContent = mode === 'login' ? '登录' : '注册';
+  $('btn-switch').textContent  = mode === 'login' ? '没有账号？注册' : '已有账号？登录';
+
+  const emailRow = $('row-email');
+  emailRow.hidden = (mode === 'login');
+  emailRow.querySelector('input').required = (mode !== 'login');
+
+  $('form-auth').reset();
+  $('auth-msg').textContent = '';
+}
+
+$('btn-switch').onclick = () => {
+  openModal($('modal').dataset.mode === 'login' ? 'register' : 'login');
+};
+$('btn-close-modal').onclick = () => { $('modal').hidden = true; };
+
+$('form-auth').onsubmit = async ev => {
+  ev.preventDefault();
+  const mode = $('modal').dataset.mode;
+  const f = new FormData(ev.target);
+  $('auth-msg').textContent = '';
+
+  try{
+    if (mode === 'register'){
+      // 注册收的是 JSON（UserCreate）
+      await api('/auth/register', {
+        method: 'POST',
+        body: {
+          username: f.get('username'),
+          email:    f.get('email'),
+          password: f.get('password'),
+        },
+      });
+      toast('注册成功，请登录');
+      openModal('login');
+      return;
+    }
+
+    // 登录收的是【表单】——见 api() 里 form 分支的注释
+    const data = await api('/auth/token', {
+      method: 'POST',
+      form: { username: f.get('username'), password: f.get('password') },
+    });
+
+    saveSession(data.access_token, f.get('username'));
+    $('modal').hidden = true;
+    renderTopbar();
+    toast('已登录');
+    loadList();
+
+  }catch(err){
+    $('auth-msg').textContent = err.message;
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════
+   9. 把界面接起来
+   ══════════════════════════════════════════════════════════════ */
+
+$('btn-home').onclick = () => { show('list'); loadList(); };
+$('btn-login').onclick  = () => openModal('login');
+$('btn-logout').onclick = () => {
+  clearSession();
+  renderTopbar();
+  state.mine = false;
+  state.skip = 0;
+  $('btn-mine').textContent = '我的文章';
+  toast('已退出');
+  loadList();
+};
+
+$('btn-mine').onclick = () => {
+  state.mine = !state.mine;
+  state.skip = 0;
+  $('btn-mine').textContent = state.mine ? '所有文章' : '我的文章';
+  loadList();
+};
+
+$('btn-new').onclick = () => openEditor(null);
+
+function doSearch(){
+  state.q = $('inp-q').value.trim();
+  state.published = $('sel-published').value;
+  state.skip = 0;
+  loadList();
+}
+$('btn-search').onclick = doSearch;
+$('inp-q').onkeydown = e => { if (e.key === 'Enter') doSearch(); };
+$('sel-published').onchange = doSearch;
+
+$('btn-prev').onclick = () => {
+  state.skip = Math.max(0, state.skip - state.limit);
+  loadList();
+};
+$('btn-next').onclick = () => {
+  state.skip += state.limit;
+  loadList();
+};
+
+/* 启动 */
+renderTopbar();
+loadList();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# 环境变量与密钥绝不入库
+.env
+
+# SQLite 数据文件
+*.db
+*.sqlite3
+
+.pytest_cache/
+.idea/
+.vscode/
+
+# 用户上传的文件（运行时产生，不进仓库）
+uploads/
+
+# 注意：requirements.txt / requirements-dev.txt 都【必须】提交进仓库，别忽略它们

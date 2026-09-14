@@ -1,0 +1,7 @@
+{
+  "include": ["app", "tests"],
+
+  "extraPaths": ["."],
+
+  "reportImplicitRelativeImport": "none"
+}

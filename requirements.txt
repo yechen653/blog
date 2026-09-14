@@ -1,0 +1,39 @@
+# ============================================================
+# blog-api 运行依赖（项目本体需要的包）
+# 安装：pip install -r requirements.txt
+# 需要 Python >= 3.11
+# ============================================================
+
+# ===== 核心：Web 框架 + ASGI 服务器 =====
+fastapi>=0.115
+uvicorn[standard]>=0.30
+
+# ===== 配置管理：从 .env / 环境变量读配置 =====
+pydantic-settings>=2.4
+
+# ===== 数据库：ORM + MySQL 驱动 =====
+sqlalchemy>=2.0
+PyMySQL>=1.1          # MySQL 驱动：纯 Python，Windows 免编译
+cryptography>=42      # MySQL 8 的 caching_sha2_password 认证在非加密连接下要用到
+
+# ===== 数据库迁移（阶段11）：把"改表结构"变成有记录、可回退的工序 =====
+alembic>=1.13
+
+# ===== 表单 / 文件上传 =====
+python-multipart>=0.0.9
+
+# ===== 静态文件 =====
+aiofiles>=23.2
+
+# ===== 安全：JWT + 密码哈希 =====
+python-jose[cryptography]>=3.3
+passlib[bcrypt]>=1.7.4
+# 锁死 4.0.1：passlib 1.7.4 与 bcrypt>=4.1 不兼容，会刷一屏警告
+bcrypt==4.0.1
+
+# ===== 校验：邮箱格式 =====
+email-validator>=2.2
+
+# ===== 缓存 / 防刷（阶段14）=====
+# 同步客户端 redis-py，和同步 SQLAlchemy 搭配；防刷用的是 SET NX EX 原子命令
+redis>=5.0

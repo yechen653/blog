@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # 设成 0 = 关闭防刷（方便做对照测试）
     VIEW_DEDUP_SECONDS: int = 60
 
+    # ── 上传目录 ──────────────────────────────────────────────
+    # 相对"启动目录"（也就是 blog-api/）。想让文件落到别处就改这一行或 .env。
+    UPLOAD_DIR: str = "uploads"
+
 
 # 模块级单例：别处一律 `from app.core.config import settings` 用它
 settings = Settings()

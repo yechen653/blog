@@ -24,7 +24,8 @@
 
   var T = (window.SITE_CONFIG || {}).themes || {};
   var root = document.documentElement;
-  var TIMING = { blank: 420, sketch: 2100, impasto: 1550, vortex: 1750,\n                 settle: 320, night: 1450, reveal: 1450 };
+  var TIMING = { blank: 420, sketch: 2100, impasto: 1550, vortex: 1750,
+                 settle: 320, night: 1450, reveal: 1450 };
   function speed() { return SC.mobile ? .72 : 1; }
 
   var REVEAL_SELECTORS = [

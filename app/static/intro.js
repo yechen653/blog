@@ -1,32 +1,42 @@
 /* ============================================================
-   intro.js — 星月夜揭幕演出
+   intro.js — 星月夜揭幕演出（五幕）
    ------------------------------------------------------------
-   与上一版的本质区别：演出【不是】一次性覆盖层，也不重画任何路径。
+   叙事：主页结构 → 绘画草图 → 油画细节 → 月亮苏醒 → 星空能量爆发
+         → 完整星月夜 → 个人主页显现
 
-     · 所有 <path d> 由 starry-canvas.js 在 mount() 生成一次，
-       本文件全程 setAttribute('d') 次数为 0。
-     · 骨架流线（.sky-bone）既是演出画的线，也是静态画里的暗底宽笔：
-       静态 dashoffset=0，演出开始退回未画状态再生长，结束回到 0。
-       因此首屏静态与演出结束是同一批 DOM 节点，无搬树、无交接重建。
-     · 旋转交给 CSS：多个旋转点各自挂 intro-orbit（差速 + 方向），
-       骨架终态位姿用一次 transition 完成，元素归位用一次 CSS 动画。
-       每帧 JS 只写 ② 阶段 ≤13 个属性，其余阶段 0 次写入。
+   五幕对应的实现：
+     ① 空白画布   .intro-paper 铺纸，画笔入场
+     ② 草图构建   原生骨架流线（sky-bone）逐条生长，画笔跟着笔尖
+     ③ 细节填充   底纹与各旋转点分层淡入；月亮排在最后画完
+     ④ 月亮苏醒   SVG 月环淡出 → Canvas 球面月接替，脱画、放大、
+                  浮起、加速自转；蓝/黄/白笔触从月心迸发
+     ⑤ 世界爆发   一块遮罩画布从月心开出圆洞并逐帧扩大，油画从月心
+                  向外蔓延；各旋转点同时切快速公转
+     ⑥ 主页显现   纸与遮罩淡出，页面元素带 Z 轴纵深错峰落位
 
-   时间线（桌面约 4.95s，移动端 ×0.72）：
-     ① 空白画布 ② 骨架生长 ③ 笔触浮现 ④ 多涡旋公转
-     ⑤ 收笔 ⑥ 圆形换幕 ⑦ 元素归位
+   性能约束沿用上一版：所有 <path d> 只生成一次，演出期间
+   setAttribute('d') = 0；每帧最多写 1 次 canvas 填充（第 ⑤ 幕）。
    ============================================================ */
 (function () {
   'use strict';
 
   var SC = window.StarryCanvas;
+  var S3 = window.Starry3D;
   if (!SC) { console.error('[intro] 缺少 starry-canvas.js'); return; }
 
   var T = (window.SITE_CONFIG || {}).themes || {};
   var root = document.documentElement;
-  var TIMING = { blank: 240, sketch: 1500, impasto: 700, vortex: 850,
-                 settle: 150, night: 560, reveal: 950 };
-  var SPEED = SC.mobile ? .72 : 1;
+
+  var TIMING = {
+    paper: 240,      /* ① 空白画布 */
+    sketch: 1700,    /* ② 草图构建 */
+    fill: 900,       /* ③ 细节填充 */
+    wake: 1350,      /* ④ 月亮苏醒 */
+    flood: 1050,     /* ⑤ 世界爆发 */
+    settle: 380,     /* 收束 */
+    reveal: 1050     /* ⑥ 主页显现 */
+  };
+  function speed() { return SC.mobile ? .78 : 1; }
 
   var REVEAL_SELECTORS = [
     '.masthead-inner', '.brand', '.nav', '.kicker', '.hero-title', '.hero-meta',
@@ -37,10 +47,14 @@
 
   var playing = false, raf = 0, guard = 0, stage = null, geo = null;
   var pageEls = [], revealNodes = [], disposers = [];
+  var moon = null, burstFx = null, moonRings = [];
+  var maxR = 0, moonR = 0;
   var start = 0, phase = 0, finished = false, htmlOverflow = '';
+  var burstPlayed = false, moonBackTimer = 0;
 
   function reduce() {
-    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return !!(window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   }
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
   function on(target, type, fn) {
@@ -49,34 +63,25 @@
   }
   function ease(u) { return 1 - Math.pow(1 - u, 2.2); }
 
-  /* ── 舞台：画布 / 圆形换幕 / UI，四层各自独立 z-index ─────────
-     常驻 .starry-canvas 在演出期间被 .is-lifted 提到画布之上，
-     所以「画」始终是真实的那一张，不需要复制或搬树。 */
+  /* ── 舞台：纸 / 遮罩画布 / UI（月亮与迸发层按需插入） ─────────── */
   function buildStage() {
-    var W = geo.W, H = geo.H, C = geo.comp;
-    var vcx = C.A.x, vcy = C.A.y;
-    var maxR = Math.hypot(Math.max(vcx, W - vcx), Math.max(vcy, H - vcy)) * 1.12;
+    var W = geo.W, H = geo.H, C = geo.comp, M = C.M;
 
-    var canvas = document.createElement('div');
-    canvas.className = 'intro-canvas';
+    var paper = document.createElement('div');
+    paper.className = 'intro-paper';
 
-    var night = document.createElement('div');
-    night.className = 'intro-night';
-    var disc = document.createElement('div');
-    disc.className = 'intro-disc';
-    disc.style.width = disc.style.height = (maxR * 2).toFixed(0) + 'px';
-    disc.style.left = (vcx - maxR).toFixed(0) + 'px';
-    disc.style.top = (vcy - maxR).toFixed(0) + 'px';
-    for (var i = 0; i < 22; i++) {
-      var star = document.createElement('span');
-      star.className = 'intro-star';
-      star.style.left = (((i * 73 + 19) % 97) / 97 * 100).toFixed(1) + '%';
-      star.style.top = (((i * 41 + 7) % 89) / 89 * 100).toFixed(1) + '%';
-      var size = 2 + (i % 4);
-      star.style.width = star.style.height = size + 'px';
-      disc.appendChild(star);
-    }
-    night.appendChild(disc);
+    maxR = Math.hypot(Math.max(M.x, W - M.x), Math.max(M.y, H - M.y)) * 1.12;
+    /* 3D 月球退场时会缩回原位、由静止层的月盘接替。两者的半径必须对得上，
+       否则交接处会看到一次"月亮突然长大/缩小"。静止层月盘的外沿在 .60 左右。 */
+    moonR = M.r * .60;
+
+    /* 夜盘：铺满整个屏幕的夜空白，初始缩到月心一点，第 ⑤ 幕放大。
+       它压在画层【下面】，所以笔触不会被遮住。 */
+    var flood = document.createElement('div');
+    flood.className = 'intro-flood';
+    flood.style.width = flood.style.height = (maxR * 2).toFixed(0) + 'px';
+    flood.style.left = (M.x - maxR).toFixed(0) + 'px';
+    flood.style.top = (M.y - maxR).toFixed(0) + 'px';
 
     var ui = document.createElement('div');
     ui.className = 'intro-ui';
@@ -89,27 +94,48 @@
         '<path d="M12 64 L8 71" stroke="#1b4f8f" stroke-width="5" stroke-linecap="round"/>' +
       '</svg>';
     ui.appendChild(brush);
+
+    /* 调色盘：第一幕与画笔一起入场，第二幕收起 */
+    var palette = document.createElement('div');
+    palette.className = 'intro-palette';
+    palette.innerHTML =
+      '<svg viewBox="0 0 132 104" aria-hidden="true">' +
+        '<path d="M34 8C12 12 2 36 8 58c6 26 38 40 66 36 24-3 38-17 33-30-4-11-21-10-27-17-6-7 0-19-13-27C58 12 46 6 34 8z" ' +
+          'fill="#8a5a33" opacity=".9"/>' +
+        '<ellipse cx="36" cy="30" rx="11" ry="8.5" fill="#f7d45c"/>' +
+        '<ellipse cx="62" cy="22" rx="9" ry="7" fill="#3576c8"/>' +
+        '<ellipse cx="86" cy="34" rx="8.5" ry="6.5" fill="#fff3cf"/>' +
+        '<ellipse cx="38" cy="54" rx="9.5" ry="7" fill="#ffb347"/>' +
+        '<ellipse cx="66" cy="63" rx="10" ry="7.5" fill="#9ed6c0"/>' +
+        '<ellipse cx="90" cy="56" rx="7.5" ry="6" fill="#1d4a91"/>' +
+        '<ellipse cx="52" cy="80" rx="6" ry="4.6" fill="#efe9dc" opacity=".85"/>' +
+      '</svg>';
+    ui.appendChild(palette);
+
     var skip = document.createElement('button');
     skip.type = 'button';
     skip.className = 'intro-skip';
     skip.textContent = T.skip || '跳过演出';
     ui.appendChild(skip);
 
-    document.body.appendChild(canvas);
-    document.body.appendChild(night);
+    document.body.appendChild(paper);
+    document.body.appendChild(flood);
     document.body.appendChild(ui);
-    return { canvas: canvas, night: night, disc: disc, ui: ui, brush: brush, skip: skip };
+
+    return { paper: paper, flood: flood, ui: ui, brush: brush,
+             palette: palette, skip: skip };
   }
 
-  /* ── 页面隐藏 / 归位节点（一次性采集，不在帧里读布局） ─────── */
   function hidePage() {
     pageEls = Array.prototype.filter.call(document.body.children, function (el) {
       var t = el.tagName;
       return t !== 'SCRIPT' && t !== 'TEMPLATE' && t !== 'NOSCRIPT' &&
              el.className.indexOf && el.className.indexOf('intro-') !== 0 &&
-             !el.classList.contains('starry-canvas');
+             !el.classList.contains('starry-canvas') &&
+             !el.classList.contains('moon3d');
     });
     pageEls.forEach(function (el) {
+      el.style.transition = 'none';
       el.style.opacity = '0';
       if ('inert' in el) el.inert = true;
     });
@@ -126,30 +152,27 @@
         found.push(el);
       });
     });
-    /* 归位用独立的 translate / rotate / scale 属性 + transition。
-       swiss.css 里 .card / .detail / .cmt 自带 rise 动画，其 transform
-       与 opacity 优先级高于 inline；若覆盖会在收尾移除时重播一次。 */
+    /* 用独立的 translate / scale 属性做纵深，不覆盖 swiss.css 里
+       .card / .detail 的 rise 动画（它们动的是 transform）。 */
     revealNodes = found.map(function (el, i) {
-      var a = (i * 2.399) % (Math.PI * 2), amp = 14 + (i % 5) * 6;
+      var a = (i * 2.399) % (Math.PI * 2);
       return {
         el: el,
-        tx: (Math.cos(a) * amp).toFixed(1) + 'px',
-        ty: (Math.sin(a) * amp).toFixed(1) + 'px',
-        rot: (((i % 7) - 3) * 1.6).toFixed(1) + 'deg',
-        delay: (i / Math.max(1, found.length) * .30).toFixed(3) + 's'
+        tx: (Math.cos(a) * (10 + i % 5 * 5)).toFixed(1) + 'px',
+        ty: (Math.sin(a) * (10 + i % 5 * 5)).toFixed(1) + 'px',
+        delay: (i / Math.max(1, found.length) * .34).toFixed(3) + 's'
       };
     });
   }
 
-  /* 笔尖位置：沿折线按弧长取点 */
   function pointAt(pts, p) {
     var total = 0, i;
     for (i = 1; i < pts.length; i++) {
-      total += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+      total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
     }
     var target = total * clamp(p, 0, 1), acc = 0;
     for (i = 1; i < pts.length; i++) {
-      var a = pts[i-1], b = pts[i];
+      var a = pts[i - 1], b = pts[i];
       var seg = Math.hypot(b.x - a.x, b.y - a.y);
       if (acc + seg >= target || i === pts.length - 1) {
         var u = seg ? (target - acc) / seg : 0;
@@ -161,86 +184,131 @@
     return { x: pts[0].x, y: pts[0].y, a: 0 };
   }
 
-  /* ── 阶段边界：每阶段只做一次写入，帧内零 DOM 操作 ─────────── */
+  /* ── 幕切换：每幕只做一次写入 ───────────────────────────────── */
   function enter(n) {
     phase = n;
+    var C = geo.comp;
+
     if (n === 2) {
       stage.brush.style.opacity = '1';
-      /* 在 ② 阶段一开头恢复 transition（不改 opacity 值），
-         让 ③ 阶段改值时能真正触发 0.7s 淡入 */
+      stage.palette.classList.add('is-in');
       geo.base.style.transition = '';
       geo.rings.forEach(function (g) { g.style.transition = ''; });
+      /* 画笔从右下入场，落到第一条骨架的起笔点 */
+      stage.brush.style.transition = 'opacity .18s ease, transform .7s cubic-bezier(.2,.7,.2,1)';
+      if (geo.bones[0]) {
+        var p = geo.bones[0].pts[0];
+        stage.brush.style.transform =
+          'translate(' + (p.x - 12).toFixed(0) + 'px,' + (p.y - 66).toFixed(0) + 'px) ' +
+          'rotate(-38deg)';
+      }
     } else if (n === 3) {
-      /* 笔触一次性淡入：CSS transition 接管，后续帧 0 写入 */
+      /* ③ 细节填充：底纹先起，各旋转点错峰跟上，月亮排在最后 —— 
+         "把月亮画完"正好成为下一幕的引信 */
       stage.brush.style.opacity = '0';
+      stage.palette.classList.remove('is-in');
+      geo.base.style.transition = 'opacity .85s ease';
       geo.base.style.opacity = '1';
-      geo.rings.forEach(function (g) { g.style.opacity = '1'; });
+      geo.rings.forEach(function (g, i) {
+        var isMoon = g.getAttribute('data-v') === 'M';
+        var d = isMoon ? 560 : (i * 55);
+        g.style.transition = 'opacity .52s ease ' + d + 'ms';
+        g.style.opacity = '1';
+      });
     } else if (n === 4) {
-      /* 多旋转点差速公转：切到一次性 intro-orbit 动画 */
+      /* ④ 月亮苏醒：SVG 月环淡出，球面月在同一坐标接替 */
+      moonRings.forEach(function (g) {
+        g.style.transition = 'opacity .3s ease';
+        g.style.opacity = '0';
+      });
+      if (S3) {
+        moon = S3.makeMoon({ x: C.M.x, y: C.M.y, r: moonR, seed: 9137 });
+        moon.wake();
+        moon.spin(.30);
+        burstFx = S3.burst({
+          x: C.M.x, y: C.M.y, r: moonR,
+          W: geo.W, H: geo.H, count: SC.mobile ? 18 : 28
+        });
+      }
+    } else if (n === 5) {
+      /* ⑤ 世界爆发：旋转点提速，夜盘从月心向外铺满 */
       root.classList.add('is-vortex');
-      /* 骨架各自旋转 + 平移，脱离原位、卷入天空构图 */
-      geo.bones.forEach(function (b) {
-        b.el.style.transition = 'transform .85s cubic-bezier(.2,.7,.2,1), opacity .5s ease';
-        b.el.style.transform = b.terminal;
-        b.el.style.opacity = '';
-      });
+      stage.flood.classList.add('is-open');
+      if (moon) moon.spin(.92);
     } else if (n === 6) {
-      /* 圆形换幕：scale 由合成器驱动，不写 clip-path。
-         同时预置归位 transition（与 ⑦ 改值之间隔 560ms，保证过渡触发） */
-      stage.disc.classList.add('is-open');
-      revealNodes.forEach(function (r) {
-        var e = ' .7s cubic-bezier(.18,.7,.2,1) ' + r.delay;
-        r.el.style.transition = 'translate' + e + ',rotate' + e + ',scale' + e;
-      });
+      /* 收束：遮罩与纸一起退场，球面月回落成画里的月环 */
+      stage.paper.classList.add('is-fade');
+      stage.flood.classList.add('is-fade');
+      if (burstFx) burstFx.fade();
+      if (moon) {
+        moon.retract();
+        moonBackTimer = setTimeout(function () {
+          if (finished) return;
+          moonRings.forEach(function (g) {
+            g.style.transition = 'opacity .5s ease';
+            g.style.opacity = '';
+          });
+        }, 220);
+      }
     } else if (n === 7) {
-      /* 常驻层回到内容之下，三层舞台淡出，元素错峰归位 */
-      root.classList.remove('is-lifted');
-      stage.canvas.classList.add('is-fade');
-      stage.night.classList.add('is-fade');
+      /* ⑥ 主页显现 */
       pageEls.forEach(function (el) {
+        el.style.transition = 'opacity .5s ease';
         el.style.opacity = '1';
         if ('inert' in el) el.inert = false;
       });
       revealNodes.forEach(function (r) {
-        r.el.style.translate = '0px 0px';
-        r.el.style.rotate = '0deg';
+        r.el.style.transition =
+          'translate .85s cubic-bezier(.18,.7,.2,1) ' + r.delay + ', ' +
+          'scale .85s cubic-bezier(.18,.7,.2,1) ' + r.delay + ', ' +
+          'opacity .55s ease ' + r.delay;
+        r.el.style.translate = '0px 0px 0px';
         r.el.style.scale = '1';
       });
     }
   }
 
-  /* ── 收尾：拆成两帧，避免一帧内集中变更造成闪烁 ───────────── */
+  /* ── 收尾：两帧完成，避免集中变更造成闪烁 ───────────────────── */
   function finish() {
     if (finished) return;
     finished = true;
     cancelAnimationFrame(raf);
     clearTimeout(guard);
+    clearTimeout(moonBackTimer);
 
-    /* 帧 1：恢复所有常驻状态 */
     root.classList.remove('is-intro', 'is-vortex', 'is-lifted');
+
+    geo.base.style.transition = '';
     geo.base.style.opacity = '';
-    geo.rings.forEach(function (g) { g.style.opacity = ''; });
+    geo.rings.forEach(function (g) {
+      g.style.transition = '';
+      g.style.opacity = '';
+    });
+    moonRings.forEach(function (g) { g.style.opacity = ''; });
     geo.bones.forEach(function (b) {
       b.el.setAttribute('stroke-dashoffset', '0');
       b.el.style.transition = '';
       b.el.style.transform = b.terminal;
       b.el.style.opacity = '';
     });
+
     revealNodes.forEach(function (r) {
       r.el.style.transition = '';
       r.el.style.translate = '';
-      r.el.style.rotate = '';
       r.el.style.scale = '';
     });
     pageEls.forEach(function (el) {
-      el.style.opacity = ''; el.style.transition = '';
+      el.style.transition = '';
+      el.style.opacity = '';
       if ('inert' in el) el.inert = false;
     });
     document.documentElement.style.overflow = htmlOverflow;
 
+    if (moon) { moon.destroy(); moon = null; }
+    if (burstFx) { burstFx.destroy(); burstFx = null; }
+
     requestAnimationFrame(function () {
-      /* 帧 2：移除舞台、解绑、放行下一次重播 */
-      ['canvas', 'night', 'ui'].forEach(function (k) {
+      ['paper', 'flood', 'ui'].forEach(function (k) {
         if (stage[k] && stage[k].parentNode) stage[k].parentNode.removeChild(stage[k]);
       });
       disposers.forEach(function (fn) { fn(); });
@@ -248,17 +316,19 @@
       stage = null; geo = null; pageEls = []; revealNodes = [];
       playing = false;
       SC.setIntro(false);
+      if (S3 && S3.sync) S3.sync();
       document.dispatchEvent(new CustomEvent('site:intro', { detail: { playing: false } }));
     });
   }
 
-  /* ── 主流程 ───────────────────────────────────────────────── */
+  /* ── 主流程 ─────────────────────────────────────────────────── */
   function play() {
     if (playing) return;
     playing = true;
     document.dispatchEvent(new CustomEvent('site:intro', { detail: { playing: true } }));
 
     geo = SC.prepare();
+    moonRings = geo.rings.filter(function (g) { return g.getAttribute('data-v') === 'M'; });
     SC.setIntro(true);
     root.classList.add('is-intro', 'is-lifted');
     htmlOverflow = document.documentElement.style.overflow;
@@ -268,8 +338,6 @@
     collectReveal();
     hidePage();
 
-    /* 把同一批常驻节点退回「未画」状态 —— 不新建任何 path。
-       先禁掉 transition，否则 opacity 会用 0.7s 慢慢淡出而不是瞬隐。 */
     geo.base.style.transition = 'none';
     geo.base.style.opacity = '0';
     geo.rings.forEach(function (g) { g.style.transition = 'none'; g.style.opacity = '0'; });
@@ -281,30 +349,31 @@
     });
     revealNodes.forEach(function (r) {
       r.el.style.transition = 'none';
-      r.el.style.translate = r.tx + ' ' + r.ty;
-      r.el.style.rotate = r.rot;
-      r.el.style.scale = '.93';
+      r.el.style.translate = r.tx + ' ' + r.ty + ' -90px';
+      r.el.style.scale = '.96';
     });
 
     on(stage.skip, 'click', finish);
-    on(stage.canvas, 'click', finish);
+    on(stage.flood, 'click', finish);
     on(document, 'keydown', function (ev) { if (ev.key === 'Escape') finish(); });
 
-    var T1 = TIMING.blank;
+    var T1 = TIMING.paper;
     var T2 = T1 + TIMING.sketch;
-    var T3 = T2 + TIMING.impasto;
-    var T4 = T3 + TIMING.vortex;
-    var T5 = T4 + TIMING.settle;
-    var T6 = T5 + TIMING.night;
+    var T3 = T2 + TIMING.fill;
+    var T4 = T3 + TIMING.wake;
+    var T5 = T4 + TIMING.flood;
+    var T6 = T5 + TIMING.settle;
     var T7 = T6 + TIMING.reveal;
-    start = 0; phase = 0; finished = false;
+    start = 0; phase = 0; finished = false; burstPlayed = false;
 
     function frame(now) {
       if (!start) start = now;
-      var t = (now - start) / SPEED;
+      var t = (now - start) / speed();
+
       if (t < T1) {
-        /* ① 空白画布：什么都不写 */
+        /* ① 空白画布 */
       } else if (t < T2) {
+        /* ② 草图构建 */
         if (phase !== 2) enter(2);
         var p = clamp((t - T1) / TIMING.sketch, 0, 1), active = null;
         geo.bones.forEach(function (b) {
@@ -318,17 +387,31 @@
             'translate(' + (pt.x - 12).toFixed(0) + 'px,' + (pt.y - 66).toFixed(0) + 'px) ' +
             'rotate(' + (pt.a * 180 / Math.PI - 40).toFixed(1) + 'deg)';
         }
-      } else if (t < T3) { if (phase !== 3) enter(3); }
-      else if (t < T4)   { if (phase !== 4) enter(4); }
-      else if (t < T5)   { if (phase !== 5) enter(5); }
-      else if (t < T6)   { if (phase !== 6) enter(6); }
-      else if (t < T7)   { if (phase !== 7) enter(7); }
-      else { finish(); return; }
+      } else if (t < T3) {
+        /* ③ 细节填充 */
+        if (phase !== 3) enter(3);
+      } else if (t < T4) {
+        /* ④ 月亮苏醒：自转加速，过半时笔触迸发 */
+        if (phase !== 4) enter(4);
+        var u = clamp((t - T3) / TIMING.wake, 0, 1);
+        if (moon) moon.spin(.30 + .62 * u);
+        if (!burstPlayed && u > .52 && burstFx) { burstFx.play(); burstPlayed = true; }
+      } else if (t < T5) {
+        /* ⑤ 世界爆发：圆洞从月心扩大 */
+        if (phase !== 5) enter(5);
+      } else if (t < T6) {
+        if (phase !== 6) enter(6);
+      } else if (t < T7) {
+        if (phase !== 7) enter(7);
+      } else {
+        finish();
+        return;
+      }
       raf = requestAnimationFrame(frame);
     }
+
     raf = requestAnimationFrame(frame);
-    /* 后台标签会暂停 rAF：到点强制收尾，且照样定格出完整画面 */
-    guard = setTimeout(finish, T7 / SPEED + 1600);
+    guard = setTimeout(finish, T7 / speed() + 1800);
   }
 
   /* 首次进站不播（首屏已有静态画）；切回 Swiss 不播。 */

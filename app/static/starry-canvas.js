@@ -92,11 +92,16 @@
       [.10,.04],[.23,.03],[.34,.04],[.42,.04],[.61,.09],
       [.71,.22],[.23,.17],[.32,.33],[.02,.45],[.12,.48],[.34,.53]
     ];
+    /* 月亮不能压在报头导航上：白色导航字背后是黄笔，对比度会掉到 2:1 以下。
+       所以月心不按 H 的固定比例放，而是先算出月盘半径，再保证"盘上沿"
+       落在报头分隔线（约 78px）以下 —— 矮屏笔记本上月亮会自动下移。 */
+    var mr = shortSide * .19;
+    var my = Math.max(H * .13, mr * .62 + 78);
     return {
       W: W, H: H, shortSide: shortSide, horizon: H * .64,
       A: { id:'A', x:W*.42, y:H*.30, r:shortSide*.30, dir:-1, power:2.30, speed:1.00 },
       B: { id:'B', x:W*.66, y:H*.47, r:shortSide*.18, dir: 1, power:1.70, speed: .70 },
-      M: { id:'M', x:W*.90, y:H*.13, r:shortSide*.20, dir: 1, power:0.90, speed: .40 },
+      M: { id:'M', x:W*.90, y:my, r:mr, dir: 1, power:0.90, speed: .40 },
       S: { id:'S', x:W*.34, y:H*.53, r:shortSide*.10, dir:-1, power:0.90, speed: .30 },
       stars: starPos.map(function (p, i) {
         return { id:'s'+i, x:W*p[0], y:H*p[1], r:shortSide*(.035 + (i%3)*.008),
@@ -290,7 +295,9 @@
     return out;
   }
 
-  /* ── 月亮：同心断续短弧环，内橙外青，边缘不规则 ─────────────── */
+  /* ── 月亮：厚实月盘 + 断续光晕环 ───────────────────────────────
+     原画的月不是"靶心"，而是中心一团暖黄厚涂、外圈几道断续弧光。
+     所以核心用密短笔铺实，外环只留 3~4 道、粗细与断口都不规则。 */
   function buildMoon(C, v, seed) {
     var rnd = rng(seed), out = [];
     [0, 1].forEach(function (ring) {
@@ -298,35 +305,42 @@
       g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
         rr(v.x) + 'px ' + rr(v.y) + 'px');
       var B = new Buckets(g, RECIPES.moon, rnd);
-      var ks = ring === 0 ? [0, 1, 2] : [3];
-      ks.forEach(function (k) {
-        var rad = v.r * (.16 + k * .19) * (1 + (rnd() - .5) * .06);
-        var n = Math.max(20, Math.round(2 * Math.PI * rad / (6 / DENSITY)));
+
+      /* ring 0 = 月盘本体；ring 1 = 外圈光晕
+         光晕不能贴着盘沿画，否则只是"描了一圈边"；要有 3 道才能读出
+         原画里月外那圈一层套一层的厚涂弧光。 */
+      var radii = ring ? [.74, .88, 1.02] : [.10, .28, .44, .60];
+      radii.forEach(function (rr2, k) {
+        var rad = v.r * rr2 * (1 + (rnd() - .5) * .05);
+        var per = ring ? 7.5 / DENSITY : 6.5 / DENSITY;
+        var n = Math.max(16, Math.round(2 * Math.PI * rad / per));
         for (var j = 0; j < n; j++) {
-          /* 断口 + 角度/半径抖动：原画光晕是断续流动的短弧，
-             不是规整闭合的几何圆环（否则会像靶心） */
-          if (rnd() < .20) continue;
-          var a = (j / n) * Math.PI * 2 + k * .23 + (rnd() - .5) * .055;
-          var rad2 = rad + (rnd() - .5) * 6.5;
+          if (rnd() < (ring ? .34 : .12)) continue;      /* 外圈断口更多 */
+          var a = (j / n) * Math.PI * 2 + k * .23 + (rnd() - .5) * .06;
+          var rad2 = rad + (rnd() - .5) * (ring ? 11 : 4.5);
           var x = v.x + Math.cos(a) * rad2, y = v.y + Math.sin(a) * rad2;
-          var dx = -Math.sin(a), dy = Math.cos(a);
-          var ink = k === 0 ? (rnd() < .5 ? 6 : 7)
-                  : k === 1 ? 6
-                  : k === 2 ? (rnd() < .6 ? 5 : 6)
-                  : k === 3 ? (rnd() < .6 ? 5 : 4) : (rnd() < .6 ? 4 : 3);
-          /* 内两圈用宽档，短笔互相搭接成连续厚环，而不是虚线圆 */
-          B.dab(x, y, dx, dy, ink, k < 2 ? 0 : null);
+          /* 光晕要比盘身更"黄"而不是更"青"，才像原画那圈暖光 */
+          var ink = ring ? (rnd() < .72 ? 6 : 5)
+                  : (k < 2 ? (rnd() < .55 ? 6 : 7)
+                           : (rnd() < .6 ? 5 : 6));
+          B.dab(x, y, -Math.sin(a), Math.cos(a), ink, ring ? 1 : (k < 2 ? 0 : 1));
         }
       });
+
       if (ring === 0) {
-        /* 核心：用短笔密集铺出实心月盘，保留笔触纹理，
-           不再是 3 个纯色 circle 那种单调圆盘 */
-        var core = v.r * .20;
-        for (var m = 0; m < 130; m++) {
-          var aa = rnd() * Math.PI * 2, cr = core * Math.sqrt(rnd());
-          /* 笔锋沿切线而非全部水平，核心读起来是旋涡状的月盘 */
+        /* 月盘铺底：整盘先铺满密短笔。
+           之前只铺到 .30，盘心靠运气盖住，压强不够就会漏出底下的深蓝笔，
+           放大后是个黑洞 —— 看着还是"靶心"。现在铺到 .62，
+           密度跟着面积走（π r² 约 4.3 倍），保证在任何缩放/DPR 下都不透底；
+           上面那 4 圈同心笔触就只剩"厚涂纹理"的意思，不再是环。 */
+        var core = v.r * .62;
+        var dabN = Math.round(260 * 4.3);
+        for (var m = 0; m < dabN; m++) {
+          /* sqrt 均匀撒点 + 轻微外偏，避免中心过密、边缘出硬边 */
+          var aa = rnd() * Math.PI * 2, cr = core * Math.sqrt(rnd()) * (.94 + rnd() * .12);
+          var ink2 = rnd() < .62 ? 6 : (rnd() < .5 ? 5 : 7);
           B.dab(v.x + Math.cos(aa) * cr, v.y + Math.sin(aa) * cr,
-                -Math.sin(aa), Math.cos(aa), rnd() < .6 ? 6 : 5, 0);
+                -Math.sin(aa), Math.cos(aa), ink2, rnd() < .55 ? 0 : 1);
         }
       }
       B.flush();
@@ -366,31 +380,100 @@
     return g;
   }
 
+  /* ── 版式种子：草稿从"主页的布局线"起笔 ───────────────────────
+     观众要能读出来：这条线来自报头分隔、标题块、正文栏、侧栏、页脚，
+     然后才融化进星空的流场。所以每条骨架的先头几段沿版式边缘直走，
+     再用 4 步加权过渡到 flowDir。 */
+  function layoutSeeds(C) {
+    var list = [];
+    function box(sel) {
+      var el = document.querySelector(sel);
+      if (!el) return null;
+      var r = el.getBoundingClientRect();
+      if (r.width < 60 || r.height < 14) return null;
+      if (r.top > C.H * 1.25) return null;
+      return r;
+    }
+    var mast = box('.masthead'), title = box('.hero-title');
+    var main = box('#main'), side = box('.sidebar'), foot = box('.site-footer');
+
+    if (mast) {
+      list.push({ x: 40, y: mast.bottom - 8, dx: 1, dy: 0, straight: 6 });
+      list.push({ x: C.W * .52, y: mast.bottom - 8, dx: 1, dy: 0, straight: 7 });
+    }
+    if (title) {
+      list.push({ x: title.left + title.width * .55, y: title.top + 4, dx: 1, dy: 0, straight: 5 });
+      list.push({ x: title.left + 4, y: title.bottom - 14, dx: 0, dy: -1, straight: 4 });
+      list.push({ x: title.left + 18, y: title.bottom - 6, dx: 1, dy: 0, straight: 5 });
+    }
+    if (main) {
+      list.push({ x: main.left + 2, y: main.top + Math.min(140, main.height * .3), dx: 0, dy: -1, straight: 5 });
+      list.push({ x: main.left + main.width * .62, y: main.top + 8, dx: 1, dy: 0, straight: 4 });
+    }
+    if (side) {
+      list.push({ x: side.left + 2, y: side.top + 34, dx: 0, dy: -1, straight: 4 });
+    }
+    if (foot) {
+      list.push({ x: C.W * .18, y: foot.top - 8, dx: 1, dy: 0, straight: 4 });
+    }
+    return list;
+  }
+
   /* ── 骨架流线：演出画的线，也是静态画里的暗底宽笔 ───────────── */
   function buildBones(C, seed) {
     var rnd = rng(seed), g = svg('g', { 'class': 'sky-bones' }), meta = [];
     var count = MOBILE ? 8 : 12;
+    var seeds = layoutSeeds(C);
+    var inks = ['#12275a', '#1d4a91', '#2a5c9e'];
+
     for (var i = 0; i < count; i++) {
-      var x = C.W * (.06 + .88 * (i / Math.max(1, count - 1))) + (rnd() - .5) * 30;
-      var y = C.H * (.10 + .42 * rnd());
-      var pts = [{ x: x, y: y }], px = x, py = y, steps = 34 + Math.round(rnd() * 22);
-      for (var s = 0; s < steps; s++) {
+      var sd = seeds.length ? seeds[i % seeds.length] : null;
+      var x, y, dx, dy, straight;
+      if (sd) {
+        x = sd.x + (rnd() - .5) * 46;
+        y = sd.y + (rnd() - .5) * 10;
+        dx = sd.dx; dy = sd.dy; straight = sd.straight;
+      } else {
+        x = C.W * (.06 + .88 * (i / Math.max(1, count - 1))) + (rnd() - .5) * 30;
+        y = C.H * (.10 + .42 * rnd());
+        var d0 = flowDir(x, y, C);
+        dx = d0.x; dy = d0.y; straight = 0;
+      }
+
+      var pts = [{ x: x, y: y }], px = x, py = y, sign = 1, locked = false;
+      var steps = 34 + Math.round(rnd() * 20);
+      for (var s2 = 0; s2 < steps; s2++) {
         var d = flowDir(px, py, C);
-        px += d.x * 15; py += d.y * 15;
+        /* 交界处若流场方向与当前笔势相反，就会画出一个回头圈；
+           在切换的那一步锁定同向分支，之后再不改。 */
+        if (!locked && s2 >= straight) {
+          sign = (d.x * dx + d.y * dy) < 0 ? -1 : 1;
+          locked = true;
+        }
+        var fx = d.x * sign, fy = d.y * sign;
+        /* 前 straight 步走版式方向，随后 6 步线性交给流场 */
+        var k = s2 < straight ? 1 : Math.max(0, 1 - (s2 - straight) / 6);
+        var vx = dx * k + fx * (1 - k), vy = dy * k + fy * (1 - k);
+        var L = Math.sqrt(vx * vx + vy * vy) || 1;
+        px += vx / L * 15; py += vy / L * 15;
         if (px < -30 || px > C.W + 30 || py < -30 || py > C.horizon + 40) break;
         pts.push({ x: px, y: py });
       }
       if (pts.length < 5) continue;
-      var dstr = pts.map(function (p, k) {
-        return (k ? 'L' : 'M') + rr(p.x) + ' ' + rr(p.y);
+
+      var dstr = pts.map(function (p, k2) {
+        return (k2 ? 'L' : 'M') + rr(p.x) + ' ' + rr(p.y);
       }).join('');
       var len = 0;
       for (var q = 1; q < pts.length; q++) {
-        len += Math.sqrt(Math.pow(pts[q].x - pts[q-1].x, 2) + Math.pow(pts[q].y - pts[q-1].y, 2));
+        len += Math.sqrt(Math.pow(pts[q].x - pts[q - 1].x, 2) +
+                         Math.pow(pts[q].y - pts[q - 1].y, 2));
       }
       var el = svg('path', {
-        'class': 'sky-bone', d: dstr, fill: 'none', stroke: '#173a72',
-        'stroke-width': (7 + rnd() * 5).toFixed(1), opacity: '.42',
+        'class': 'sky-bone', d: dstr, fill: 'none',
+        stroke: inks[i % inks.length],
+        'stroke-width': (3.6 + rnd() * 5.2).toFixed(1),
+        opacity: (.32 + rnd() * .16).toFixed(2),
         'stroke-linecap': 'round', 'stroke-linejoin': 'round'
       });
       el.setAttribute('stroke-dasharray', len.toFixed(0));
@@ -398,11 +481,10 @@
       g.appendChild(el);
 
       /* 终态位姿：每根骨架各自旋转 + 平移，脱离版式、落入天空构图。
-         首屏静态就保持这个终态，演出只是「从原位卷进来」的过程，
-         因此首屏与演出结束看到的是同一张画。 */
+         首屏静态就保持这个终态，演出只是「从版式线卷进星空」的过程。 */
       var rot = (rnd() * 2 - 1) * 26;
-      var tx = (rnd() * 2 - 1) * C.W * .045;
-      var ty = (rnd() * 2 - 1) * C.H * .055;
+      var tx = (rnd() * 2 - 1) * C.W * .05;
+      var ty = (rnd() * 2 - 1) * C.H * .06;
       var scale = .94 + rnd() * .10;
       var terminal = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) ' +
         'rotate(' + rot.toFixed(1) + 'deg) scale(' + scale.toFixed(3) + ')';

@@ -169,7 +169,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 :root[data-theme="swiss"] .starry-canvas{display:none}
 .starry-canvas svg{position:absolute;inset:0;width:100%;height:100%}
 .starry-spin{will-change:transform}
-:root.is-lifted .starry-canvas{z-index:9997;opacity:1;transition:none}
+:root.is-lifted .starry-canvas{z-index:9992;opacity:1;transition:none}
 
 .sky-base,.v-ring,.sky-bones{transition:opacity .7s ease}
 .ink-path{fill:none;stroke-linecap:round;stroke-linejoin:round}
@@ -202,36 +202,95 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 }
 
 /* ── 4. 揭幕演出的分层舞台 ─────────────────────────────────────
-   画布 / 圆形夜空 / 常驻画 / UI 是四个独立层，各自固定 z-index。
-   笔触始终用真实的那一张画，不复制、不搬树。 */
-.intro-canvas{
-  position:fixed;inset:0;z-index:9995;
+   纸(9990) → 常驻画(9992) → 迸发笔触(9994) → 遮罩画布(9996)
+   → 球面月(9998) → UI(9999)：z 轴顺序就是叙事顺序。
+   第 ⑤ 幕的"世界从月心长出来"由一块逐帧重绘的遮罩画布完成：
+   整屏填纸色，只在月心挖一个半径不断增大的圆洞。 */
+.intro-paper{
+  position:fixed;inset:0;z-index:9990;
   background-color:#efe9dc;
   background-image:
     repeating-linear-gradient(0deg,rgba(120,100,70,.045) 0 1px,transparent 1px 4px),
     repeating-linear-gradient(90deg,rgba(120,100,70,.035) 0 1px,transparent 1px 5px),
     radial-gradient(ellipse at 50% 45%,rgba(255,255,255,.5),rgba(160,140,105,.12) 100%);
-  transition:opacity .75s ease;
+  transition:opacity .6s ease;
 }
-.intro-night{position:fixed;inset:0;z-index:9996;pointer-events:none;overflow:hidden;
-  transition:opacity .75s ease}
-.intro-canvas.is-fade,.intro-night.is-fade{opacity:0;pointer-events:none}
+.intro-paper.is-fade{opacity:0;pointer-events:none}
 
-.intro-disc{
-  position:absolute;border-radius:50%;overflow:hidden;
-  transform:scale(0);transform-origin:center;
-  transition:transform .56s cubic-bezier(.25,.7,.25,1);
+/* 夜盘：从月心长出的夜空色圆盘，压在【画层下面】。
+   这样笔触全程不被遮住，变的是"纸"被夜空替换 —— 正是第 ⑤ 幕要的
+   "星月夜底色从月亮中蔓延出来"。transform 缩放由合成器完成，
+   演出期间零逐帧重绘。 */
+.intro-flood{
+  position:fixed;z-index:9991;pointer-events:auto;
+  border-radius:50%;transform-origin:center;
+  transform:scale(.012);opacity:0;
+  transition:transform 1.05s cubic-bezier(.32,.72,.24,1),opacity .55s ease;
   background-color:#10233f;
   background-image:
-    radial-gradient(circle at var(--moon-x,90%) var(--moon-y,13%),
-      rgba(255,179,71,.28) 0 3%, rgba(242,201,76,0) 14%),
-    radial-gradient(ellipse at 50% 0%,#1b3a6b 0%,#10233f 60%,#081728 100%);
+    radial-gradient(circle at 50% 22%,rgba(255,179,71,.20) 0 12%,rgba(242,201,76,0) 42%),
+    radial-gradient(ellipse at 50% 8%,#1b3a6b 0%,#10233f 58%,#081728 100%);
+  -webkit-mask-image:radial-gradient(circle,#000 86%,rgba(0,0,0,.6) 96%,transparent 100%);
+  mask-image:radial-gradient(circle,#000 86%,rgba(0,0,0,.6) 96%,transparent 100%);
+  will-change:transform;
 }
-.intro-disc.is-open{transform:scale(1.02)}
-.intro-star{
-  position:absolute;border-radius:50%;
-  background:#ffe9a8;box-shadow:0 0 9px 3px rgba(255,225,138,.45);
+.intro-flood.is-open{transform:scale(1.06);opacity:1}
+.intro-flood.is-fade{opacity:0;pointer-events:none}
+
+/* 球面月：外层给 perspective，内层做脱画 / 放大 / 浮起 / 倾斜。
+   face 是 canvas 逐帧球面采样，edge 做厚度，shade 做明暗与边缘，
+   glow 做月晕 —— 月亮始终是"油画质感"，不是光滑 3D 球。 */
+.moon3d{position:fixed;z-index:9998;pointer-events:none;perspective:900px}
+.moon3d-body{
+  position:relative;width:100%;height:100%;
+  transform-style:preserve-3d;
+  opacity:0;transform:none;
+  transition:transform 1.25s cubic-bezier(.2,.7,.2,1),opacity .45s ease;
 }
+.moon3d.is-wake .moon3d-body{
+  opacity:1;
+  transform:translate3d(var(--mw-x,-64px),var(--mw-y,48px),96px)
+            rotateX(8deg) rotateY(-12deg) scale(var(--mw-s,1.34));
+}
+.moon3d.is-retract .moon3d-body{
+  opacity:0;
+  transform:translateZ(0) rotateX(0deg) rotateY(0deg) scale(.98);
+}
+.moon3d-face{position:absolute;inset:0;width:100%;height:100%;border-radius:50%}
+.moon3d-edge{
+  position:absolute;inset:0;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%,#8a5a12,#5d3d0c);
+  transform:translateZ(-16px) scale(.99);
+}
+.moon3d-shade{
+  position:absolute;inset:0;border-radius:50%;
+  background:
+    radial-gradient(circle at 34% 30%,rgba(255,250,232,.42),rgba(255,250,232,0) 44%),
+    radial-gradient(circle at 50% 50%,rgba(6,16,34,0) 54%,rgba(6,16,34,.55) 100%);
+}
+.moon3d-glow{
+  position:absolute;inset:-42%;border-radius:50%;
+  background:radial-gradient(circle,rgba(242,201,76,.30),rgba(242,201,76,0) 68%);
+  transform:translateZ(-30px);opacity:.85;
+}
+
+/* 迸发笔触：蓝 / 黄 / 白，沿切向甩出；用 CSS 动画跑 dashoffset，
+   不在主线程写任何属性。 */
+.intro-burst{
+  position:fixed;inset:0;width:100%;height:100%;z-index:9994;
+  pointer-events:none;overflow:visible;
+  transition:opacity .55s ease;
+}
+.intro-burst path{
+  fill:none;stroke-linecap:round;
+  stroke-dasharray:var(--len,200);
+  stroke-dashoffset:var(--len,200);
+}
+.intro-burst.is-on path{
+  animation:burst-draw 1.15s cubic-bezier(.2,.7,.2,1) var(--delay,0s) forwards;
+}
+.intro-burst.is-fade{opacity:0}
+@keyframes burst-draw{to{stroke-dashoffset:0}}
 
 .intro-ui{position:fixed;inset:0;z-index:9999;pointer-events:none}
 .intro-ui>button{pointer-events:auto}
@@ -240,6 +299,14 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
   pointer-events:none;opacity:0;transform-origin:12px 64px;
   transition:opacity .18s ease;
 }
+.intro-palette{
+  position:absolute;left:14%;bottom:9%;width:132px;height:104px;
+  pointer-events:none;opacity:0;transform:translateY(24px) rotate(-16deg) scale(.9);
+  transition:opacity .45s ease,transform .7s cubic-bezier(.2,.7,.2,1);
+}
+.intro-palette.is-in{opacity:1;transform:translateY(0) rotate(-8deg) scale(1)}
+.intro-palette svg{width:100%;height:100%;display:block}
+
 .intro-skip{
   position:absolute;right:18px;bottom:18px;
   padding:9px 14px;border:1px solid rgba(16,35,63,.5);border-radius:0;
@@ -248,12 +315,66 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 }
 .intro-skip:hover{background:#f2c94c}
 
-/* ── 5. 阅读态 / 减弱动效 ────────────────────────────────────── */
+/* ── 5. 三维空间层（仅星月夜 + 展示态） ───────────────────────
+   页面本身不建模：文字仍是真实 HTML。这里只做两件事 ——
+     · 给几个容器加 perspective，让子元素能沿 Z 轴分层；
+     · 用 --px / --py（鼠标归一化位置，由 starry-3d.js 每帧写一次
+       根变量）驱动极小幅度的 rotateX / rotateY，形成视差。
+   位移都压在 4~18px 的 Z 上，文字不会被放大到发虚。 */
+:root.is-3d .masthead,
+:root.is-3d .hero,
+:root.is-3d .layout,
+:root.is-3d .site-footer{perspective:1300px;perspective-origin:50% 28%}
+
+:root.is-3d .masthead-inner,
+:root.is-3d .hero > *,
+:root.is-3d .layout > main,
+:root.is-3d .layout > .sidebar,
+:root.is-3d .site-footer > *{
+  transform:
+    rotateX(calc(var(--py,0) * -1.2deg))
+    rotateY(calc(var(--px,0) * 1.6deg))
+    translateZ(var(--dz,0px));
+  will-change:transform;
+}
+:root.is-3d .masthead-inner{--dz:12px}
+:root.is-3d .hero > .kicker{--dz:6px}
+:root.is-3d .hero > .hero-title{--dz:18px}
+:root.is-3d .hero > .hero-meta{--dz:10px}
+:root.is-3d .layout > main{--dz:4px}
+:root.is-3d .layout > .sidebar{--dz:14px}
+:root.is-3d .site-footer > *{--dz:4px}
+
+/* 卡片与链接卡：悬停抬离画面，按下压回 —— "实体面板"的反馈 */
+:root.is-3d #list,
+:root.is-3d .link-grid{perspective:1100px}
+:root.is-3d #list .card,
+:root.is-3d .link-card{
+  transition:transform .28s cubic-bezier(.2,.7,.2,1),background .2s ease;
+}
+:root.is-3d #list .card:hover{transform:translateZ(16px)}
+:root.is-3d .link-card:hover{transform:translateZ(12px)}
+:root.is-3d .btn:active{transform:translateZ(-3px) scale(.985)}
+:root.is-3d .theme-panel{transform:translateZ(26px)}
+
+/* ── 6. 阅读态 / 减弱动效 ────────────────────────────────────── */
 :root[data-view="reading"] .starry-canvas{opacity:var(--paint-opacity-reading)}
 :root[data-view="reading"] .v-ring{animation-play-state:paused}
+/* 阅读态纵深归零：.is-3d 由 starry-3d.js 摘除，这里再兜一层 */
+:root[data-view="reading"] .masthead-inner,
+:root[data-view="reading"] .hero > *,
+:root[data-view="reading"] .layout > main,
+:root[data-view="reading"] .layout > .sidebar,
+:root[data-view="reading"] .site-footer > *{transform:none}
 
 @media(prefers-reduced-motion:reduce){
   .v-ring{animation:none}
-  .intro-disc{transition:none}
-  .intro-canvas,.intro-night{transition:none}
+  .intro-paper,.intro-flood,.intro-burst{transition:none}
+  .moon3d-body{transition:none}
+  .moon3d-body{transform:none!important;opacity:1}
+  :root.is-3d .masthead-inner,
+  :root.is-3d .hero > *,
+  :root.is-3d .layout > main,
+  :root.is-3d .layout > .sidebar,
+  :root.is-3d .site-footer > *{transform:none}
 }

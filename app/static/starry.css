@@ -176,8 +176,11 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 .sky-bone{
   fill:none;stroke-linecap:round;stroke-linejoin:round;
   transform-box:fill-box;transform-origin:center;
-  transition:opacity .5s ease;
+  transition:opacity .5s ease,stroke .6s ease;
 }
+/* 演出 ②：夜空当画布，草图墨必须反着来（浅色才能在 #10233f 上看见）；
+   ③ 摘掉 is-sketch，随底纹淡入退回油画里的暗底宽笔。 */
+:root.is-sketch .sky-bone{stroke:#f6e8c6}
 
 /* 每个旋转点一个 <g>，周期由 --orbit 决定，内圈更快 → 差速涡旋。
    data-dir=-1 用 reverse 反向；演出 ④ 阶段切到一次性 intro-orbit。 */
@@ -202,20 +205,10 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 }
 
 /* ── 4. 揭幕演出的分层舞台 ─────────────────────────────────────
-   纸(9990) → 常驻画(9992) → 迸发笔触(9994) → 遮罩画布(9996)
-   → 球面月(9998) → UI(9999)：z 轴顺序就是叙事顺序。
-   第 ⑤ 幕的"世界从月心长出来"由一块逐帧重绘的遮罩画布完成：
-   整屏填纸色，只在月心挖一个半径不断增大的圆洞。 */
-.intro-paper{
-  position:fixed;inset:0;z-index:9990;
-  background-color:#efe9dc;
-  background-image:
-    repeating-linear-gradient(0deg,rgba(120,100,70,.045) 0 1px,transparent 1px 4px),
-    repeating-linear-gradient(90deg,rgba(120,100,70,.035) 0 1px,transparent 1px 5px),
-    radial-gradient(ellipse at 50% 45%,rgba(255,255,255,.5),rgba(160,140,105,.12) 100%);
-  transition:opacity .6s ease;
-}
-.intro-paper.is-fade{opacity:0;pointer-events:none}
+   常驻画(9992) → 迸发笔触(9994) → 夜盘(9991) → 球面月(9998) → UI(9999)。
+   第一幕没有纸、没有画笔：画布就是夜本身，骨架流线直接画在夜空上，
+   所以草图墨要反过来用浅色（见下面的 is-sketch），等第 ③ 幕底纹铺上
+   再随过渡退回油画里的暗底墨。 */
 
 /* 夜盘：从月心长出的夜空色圆盘，压在【画层下面】。
    这样笔触全程不被遮住，变的是"纸"被夜空替换 —— 正是第 ⑤ 幕要的
@@ -294,18 +287,6 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 
 .intro-ui{position:fixed;inset:0;z-index:9999;pointer-events:none}
 .intro-ui>button{pointer-events:auto}
-.intro-brush{
-  position:absolute;left:0;top:0;width:76px;height:76px;
-  pointer-events:none;opacity:0;transform-origin:12px 64px;
-  transition:opacity .18s ease;
-}
-.intro-palette{
-  position:absolute;left:14%;bottom:9%;width:132px;height:104px;
-  pointer-events:none;opacity:0;transform:translateY(24px) rotate(-16deg) scale(.9);
-  transition:opacity .45s ease,transform .7s cubic-bezier(.2,.7,.2,1);
-}
-.intro-palette.is-in{opacity:1;transform:translateY(0) rotate(-8deg) scale(1)}
-.intro-palette svg{width:100%;height:100%;display:block}
 
 .intro-skip{
   position:absolute;right:18px;bottom:18px;
@@ -369,7 +350,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 
 @media(prefers-reduced-motion:reduce){
   .v-ring{animation:none}
-  .intro-paper,.intro-flood,.intro-burst{transition:none}
+  .intro-flood,.intro-burst{transition:none}
   .moon3d-body{transition:none}
   .moon3d-body{transform:none!important;opacity:1}
   :root.is-3d .masthead-inner,

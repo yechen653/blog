@@ -22,8 +22,8 @@
 
   var NS = 'http://www.w3.org/2000/svg';
   var root = document.documentElement;
-  var MOBILE = !!(window.matchMedia && window.matchMedia('(max-width:700px)').matches);
-  var DENSITY = MOBILE ? .68 : 1;
+  function isMobile() { return !!(window.matchMedia && window.matchMedia('(max-width:700px)').matches); }
+  function density() { return isMobile() ? .68 : 1; }
 
   /* ── 8 种颜料：c 色值，w 基准宽度，o 不透明度。
         取原画的钴蓝 / 群青 / 青绿 / 金黄，不用近黑的海军蓝压整幅画。 */
@@ -57,7 +57,7 @@
 
   var host = null, sky = null, staticSvg = null, spinSvg = null, bonesGroup = null;
   var rings = [], bones = [], baseLayer = null;
-  var COMP = null, disposers = [], resizeRaf = 0, resizeBound = false;
+  var COMP = null, disposers = [], resizeRaf = 0, resizeBound = false, resizePending = false;
 
   function svg(tag, attrs) {
     var el = document.createElementNS(NS, tag);
@@ -203,8 +203,8 @@
     var B = new Buckets(g, RECIPES.base, rnd);
     /* 密网格 + 短步长：原画的天空几乎被并排短笔铺满，
        稀疏划线只会像噪点。这一层是静止的，密度可以放心加。 */
-    var gx = Math.max(12, Math.round(C.W / (46 / DENSITY)));
-    var gy = Math.max(10, Math.round(C.horizon / (34 / DENSITY)));
+    var gx = Math.max(12, Math.round(C.W / (46 / density())));
+    var gy = Math.max(10, Math.round(C.horizon / (34 / density())));
     for (var j = 0; j < gy; j++) {
       for (var i = 0; i < gx; i++) {
         var x = (i + .5 + (rnd() - .5) * .8) * C.W / gx;
@@ -235,8 +235,8 @@
     /* 远山：先铺满山体带的横向短笔，再叠几条起伏的山脊线，
        避免地平线到村庄之间留出一大片纯色空洞。 */
     var hill = new Buckets(g, RECIPES.hill, rnd);
-    var hn = Math.max(30, Math.round(C.W / (24 / DENSITY)));
-    var hm = Math.max(8, Math.round((C.H * .87 - C.horizon) / (22 / DENSITY)));
+    var hn = Math.max(30, Math.round(C.W / (24 / density())));
+    var hm = Math.max(8, Math.round((C.H * .87 - C.horizon) / (22 / density())));
     for (var hj = 0; hj < hm; hj++) {
       for (var hi = 0; hi < hn; hi++) {
         var hx = (hi + .5 + (rnd() - .5) * .5) * C.W / hn;
@@ -247,7 +247,7 @@
     }
     [0,1,2,3].forEach(function (k) {
       var baseY = C.horizon + (C.H * .87 - C.horizon) * (.12 + k * .22);
-      var n = Math.max(30, Math.round(C.W / (20 / DENSITY)));
+      var n = Math.max(30, Math.round(C.W / (20 / density())));
       for (var i = 0; i < n; i++) {
         var x = (i + .5) * C.W / n;
         var y = baseY + Math.sin(x / (C.W * .14) + k * 1.7) * C.H * .022;
@@ -277,7 +277,7 @@
       g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
         rr(v.x) + 'px ' + rr(v.y) + 'px');
       var B = new Buckets(g, recipe, rnd);
-      var seeds = Math.round((ring ? 22 : 14) * DENSITY);
+      var seeds = Math.round((ring ? 22 : 14) * density());
       for (var i = 0; i < seeds; i++) {
         var a = (i / seeds) * Math.PI * 2 + ring * .31 + rnd() * .5;
         var rad = v.r * (ring ? (.55 + rnd() * .30) : (.14 + rnd() * .26));
@@ -301,7 +301,7 @@
       var ks = ring === 0 ? [0, 1, 2] : [3];
       ks.forEach(function (k) {
         var rad = v.r * (.16 + k * .19) * (1 + (rnd() - .5) * .06);
-        var n = Math.max(20, Math.round(2 * Math.PI * rad / (6 / DENSITY)));
+        var n = Math.max(20, Math.round(2 * Math.PI * rad / (6 / density())));
         for (var j = 0; j < n; j++) {
           /* 断口 + 角度/半径抖动：原画光晕是断续流动的短弧，
              不是规整闭合的几何圆环（否则会像靶心） */
@@ -345,7 +345,7 @@
     C.stars.forEach(function (s, si) {
       for (var k = 0; k < 3; k++) {
         var rad = s.r * (.24 + k * .32);
-        var n = Math.max(9, Math.round(2 * Math.PI * rad / (9 / DENSITY)));
+        var n = Math.max(9, Math.round(2 * Math.PI * rad / (9 / density())));
         for (var j = 0; j < n; j++) {
           if (rnd() < .17) continue;
           var a = (j / n) * Math.PI * 2 + si * .4 + k * .17 + (rnd() - .5) * .08;
@@ -369,7 +369,7 @@
   /* ── 骨架流线：演出画的线，也是静态画里的暗底宽笔 ───────────── */
   function buildBones(C, seed) {
     var rnd = rng(seed), g = svg('g', { 'class': 'sky-bones' }), meta = [];
-    var count = MOBILE ? 8 : 12;
+    var count = isMobile() ? 8 : 12;
     for (var i = 0; i < count; i++) {
       var x = C.W * (.06 + .88 * (i / Math.max(1, count - 1))) + (rnd() - .5) * 30;
       var y = C.H * (.10 + .42 * rnd());
@@ -479,18 +479,26 @@
     disposers = [];
     resizeBound = false;
     if (resizeRaf) { cancelAnimationFrame(resizeRaf); resizeRaf = 0; }
-    root.classList.remove('is-intro', 'is-vortex', 'is-lifted');
+    root.classList.remove('is-intro', 'is-vortex', 'is-lifted', 'is-impasto');
   }
 
+  function introIsPlaying() {
+    return root.classList.contains('is-intro') || !!(window.SiteIntro && window.SiteIntro.isPlaying && window.SiteIntro.isPlaying());
+  }
   function onResize() {
+    if (introIsPlaying()) { resizePending = true; return; }
     if (resizeRaf) return;
     resizeRaf = requestAnimationFrame(function () {
       resizeRaf = 0;
       if (root.dataset.theme !== 'starry') return;
-      /* remove() 会清掉 disposers，所以重画后必须重新绑定 resize */
+      if (introIsPlaying()) { resizePending = true; return; }
+      resizePending = false;
       remove(); mount(); bindResize();
     });
   }
+  document.addEventListener('site:intro', function (ev) {
+    if (ev && ev.detail && ev.detail.playing === false && resizePending) onResize();
+  });
 
   /* 供 intro.js：拿到同一批节点，不搬树、不重建 path */
   function prepare() {
@@ -518,7 +526,7 @@
     ensure: ensure, remove: remove, prepare: prepare, adopt: adopt,
     setIntro: setIntro, svg: svg,
     inks: INKS, tiers: TIERS, recipes: RECIPES,
-    mobile: MOBILE, isMounted: function () { return !!host; },
+    get mobile() { return isMobile(); }, isMounted: function () { return !!host; },
     stats: function () {
       var chars = 0, paths = 0;
       if (host) Array.prototype.forEach.call(host.querySelectorAll('path'), function (p) {

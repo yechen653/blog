@@ -291,7 +291,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 :root[data-theme="starry"] #list .card:hover,
 :root[data-theme="starry"] .detail:hover{
   translate:0 0 16px;
-  rotate: x var(--space-tilt-y,0deg) y var(--space-tilt-x,0deg);
+  rotate: 1 1 0 calc(var(--space-tilt-x,0deg) + var(--space-tilt-y,0deg));
   filter:drop-shadow(0 18px 20px rgba(2,10,25,.28));
 }
 :root[data-theme="starry"] .nav-link,

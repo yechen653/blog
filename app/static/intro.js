@@ -188,7 +188,7 @@
     } else if (n === 6) {
       /* 圆形换幕：scale 由合成器驱动，不写 clip-path。
          同时预置归位 transition（与 ⑦ 改值之间隔 560ms，保证过渡触发） */
-      stage.disc.classList.add('is-open');
+      stage.disc.classList.add('is-open');\n      /* 画面从月亮所在区域向外铺展，不再用纯色圆形遮罩替代整幅画。 */
       revealNodes.forEach(function (r) {
         var e = ' .7s cubic-bezier(.18,.7,.2,1) ' + r.delay;
         r.el.style.transition = 'translate' + e + ',rotate' + e + ',scale' + e;

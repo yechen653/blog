@@ -245,6 +245,7 @@
                  Math.abs(o.x2 - s.x2) < 40;
         })) continue;
         s.el = el;
+        s.side = spec.side;
         pool.push(s);
         owners.push(el);
       }
@@ -321,9 +322,10 @@
           t1: { x: s.x1 + (s.x2 - s.x1) * t1, y: s.y1 + (s.y2 - s.y1) * t1 }
         });
       }
+      chunks.forEach(function (c, ci) { c.a = ci / n; c.b = (ci + 1) / n; });
       items.push({
-        chunks: chunks, w: s.kind === 'h' ? 1.5 : 1.4,
-        kind: s.kind, j: j++
+        chunks: chunks, seg: s, ox: ox, oy: oy,
+        w: s.kind === 'h' ? 1.5 : 1.4, kind: s.kind, j: j++
       });
     });
 
@@ -384,12 +386,43 @@
 
         svg.appendChild(g);
         groups.push(g);
-        airList.push({ g: g, target: ch.t0 });
+        airList.push({ g: g, p: p, seg: it.round ? null : it.seg,
+                       ox: it.ox, oy: it.oy, a: ch.a, b: ch.b,
+                       kind: it.round ? 'o' : it.kind });
       });
     });
 
+    /* 落位前重测一次：列表页的文章是接口回来才渲染的，量坐标时页面
+       可能还没长成最终高度（实测页脚会往下跳 90px），侧栏内部的排版
+       也会再流一次。这里把每一段按新坐标重写一遍 d 并重算位移 ——
+       一次 setAttribute 发生在幕边界上，不是逐帧写入。
+
+       重写 d 是必须的：整段长度会变（实测一条 262px 的框线变成 251px），
+       只改位移的话最后一段会戳出去十几像素，落位就不算"重合"了。 */
+    function rebind() {
+      var seen = [];
+      airList.forEach(function (a) {
+        if (!a.seg) return;
+        if (seen.indexOf(a.seg) < 0) {
+          seen.push(a.seg);
+          var now = segOf(a.seg.el, a.seg.side, W, H);
+          if (now) { a.seg.x1 = now.x1; a.seg.y1 = now.y1; a.seg.x2 = now.x2; a.seg.y2 = now.y2; }
+        }
+        var dx1 = a.seg.x2 - a.seg.x1, dy1 = a.seg.y2 - a.seg.y1;
+        var x1 = a.seg.x1 + dx1 * a.a + a.ox, y1 = a.seg.y1 + dy1 * a.a + a.oy;
+        var x2 = a.seg.x1 + dx1 * a.b + a.ox, y2 = a.seg.y1 + dy1 * a.b + a.oy;
+        a.p.setAttribute('d', 'M' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
+                              'L' + x2.toFixed(1) + ' ' + y2.toFixed(1));
+        a.p.style.setProperty('--len',
+          Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)).toFixed(1));
+        /* 重写之后，落位只剩"手绘偏移"这一点距离要修 */
+        a.g.style.setProperty('--dx', (-a.ox).toFixed(1) + 'px');
+        a.g.style.setProperty('--dy', (-a.oy).toFixed(1) + 'px');
+      });
+    }
+
     return {
-      el: svg, groups: groups,
+      el: svg, groups: groups, rebind: rebind,
       /* 草图幕的时长：最后一条起笔 + 它自己画完 + 一点余量 */
       ms: Math.round((items.length - 1) * INK * CHAIN + INK + TAIL),
       /* 断线幕的时长必须盖住最后一段落位，否则页面会在半路亮起来 */
@@ -433,7 +466,7 @@
     } else if (n === 5) {
       /* ⑤ 断线归位：整层加 is-air，每段开始"绕涡心 → 飞回落点"。
          这一刻开始页面不再被遮，构造线自己会走到版式上去。 */
-      if (guide) guide.el.classList.add('is-air');
+      if (guide) { guide.rebind(); guide.el.classList.add('is-air'); }
     } else if (n === 6) {
       /* ⑥ 世界爆发：旋转点提速，夜空从月心向外铺满 */
       root.classList.add('is-vortex');

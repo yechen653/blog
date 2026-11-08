@@ -42,7 +42,7 @@
   }
 
   var TIMING = {
-    quiet: 260,      /* ① 空白画板 */
+    quiet: 520,      /* ① 空白画板 */
     sketch: 1500,    /* ② 涡臂草图 */
     fill: 900,       /* ③ 油画显影 */
     wake: 1100,      /* ④ 月心迸发 */
@@ -50,7 +50,15 @@
     settle: 380,     /* 收束 */
     reveal: 1000     /* ⑥ 主页显现 */
   };
+  /* 整体放慢系数：1 = 原速。要调快慢只改这一个数 ——
+     幕的时长、层间过渡（内联 + CSS 的 --intro-pace）、涡臂公转、
+     迸发笔触全部乘它。只改 TIMING 不改 CSS 会出现
+     "时间线拉开了、过渡还是原速"的前松后紧。 */
+  var PACE = 1.6;
   function speed() { return SC.mobile ? .78 : 1; }
+  /* 实际倍率：移动端屏幕小、看完更快，乘 .78 反而更紧凑 */
+  var pace = PACE;
+  function dur(sec) { return (sec * pace).toFixed(2) + 's'; }
 
   var REVEAL_SELECTORS = [
     '.masthead-inner', '.brand', '.nav', '.kicker', '.hero-title', '.hero-meta',
@@ -147,7 +155,9 @@
         el: el,
         tx: (Math.cos(a) * (10 + i % 5 * 5)).toFixed(1) + 'px',
         ty: (Math.sin(a) * (10 + i % 5 * 5)).toFixed(1) + 'px',
-        delay: (i / Math.max(1, found.length) * .34).toFixed(3) + 's'
+        /* 存毫秒数，真正用到时再乘放慢系数 —— 这里要是先拼成字符串，
+           以后调 PACE 就得重新解析时间。 */
+        delayMs: Math.round(i / Math.max(1, found.length) * 340)
       };
     });
   }
@@ -166,16 +176,16 @@
     } else if (n === 3) {
       /* ③ 油画显影：底纹铺上，涡臂从草图的实墨退回画里的暗底宽笔，
          各旋转点错峰跟上，月亮排在最后 —— "把月亮画完"正好成为下一幕的引信 */
-      geo.base.style.transition = 'opacity .85s ease';
+      geo.base.style.transition = 'opacity ' + dur(.85) + ' ease';
       geo.base.style.opacity = '1';
       geo.bones.forEach(function (b) {
-        b.el.style.transition = 'opacity .9s ease';
+        b.el.style.transition = 'opacity ' + dur(.9) + ' ease';
         b.el.style.opacity = '';
       });
       geo.rings.forEach(function (g, i) {
         var isMoon = g.getAttribute('data-v') === 'M';
         var d = isMoon ? 560 : (i * 55);
-        g.style.transition = 'opacity .52s ease ' + d + 'ms';
+        g.style.transition = 'opacity ' + dur(.52) + ' ease ' + Math.round(d * pace) + 'ms';
         g.style.opacity = '1';
       });
     } else if (n === 4) {
@@ -198,15 +208,16 @@
     } else if (n === 7) {
       /* ⑥ 主页显现 */
       pageEls.forEach(function (el) {
-        el.style.transition = 'opacity .5s ease';
+        el.style.transition = 'opacity ' + dur(.5) + ' ease';
         el.style.opacity = '1';
         if ('inert' in el) el.inert = false;
       });
       revealNodes.forEach(function (r) {
+        var d = Math.round(r.delayMs * pace) + 'ms';
         r.el.style.transition =
-          'translate .85s cubic-bezier(.18,.7,.2,1) ' + r.delay + ', ' +
-          'scale .85s cubic-bezier(.18,.7,.2,1) ' + r.delay + ', ' +
-          'opacity .55s ease ' + r.delay;
+          'translate ' + dur(.85) + ' cubic-bezier(.18,.7,.2,1) ' + d + ', ' +
+          'scale ' + dur(.85) + ' cubic-bezier(.18,.7,.2,1) ' + d + ', ' +
+          'opacity ' + dur(.55) + ' ease ' + d;
         r.el.style.translate = '0px 0px 0px';
         r.el.style.scale = '1';
       });
@@ -216,6 +227,7 @@
   /* ── 还原：把演出期间写上去的内联样式全部收回 ───────────────── */
   function restorePage() {
     root.classList.remove('is-intro', 'is-vortex', 'is-lifted');
+    root.style.removeProperty('--intro-pace');
 
     if (geo) {
       geo.base.style.transition = '';
@@ -279,6 +291,9 @@
     playing = true;
     finished = false;
     burstPlayed = false;
+    pace = PACE * speed();
+    /* CSS 侧的过渡 / 动画时长都乘这个变量，保证层间节奏与时间线同步 */
+    root.style.setProperty('--intro-pace', pace.toFixed(3));
     markSeen();
     document.dispatchEvent(new CustomEvent('site:intro', { detail: { playing: true } }));
 
@@ -328,7 +343,7 @@
 
     function frame(now) {
       if (!start) start = now;
-      var t = (now - start) / speed();
+      var t = (now - start) / pace;
 
       if (t < T1) {
         /* ① 空白画板 */
@@ -364,7 +379,9 @@
     }
 
     raf = requestAnimationFrame(frame);
-    guard = setTimeout(finish, T7 / speed() + 1800);
+    /* 兜底计时器：时间线按 T7/pace 走（对应真实毫秒 T7*pace），
+       这里必须乘，不能除 —— 除的话放慢系数一上来就变成"提前收场"。 */
+    guard = setTimeout(finish, T7 * pace + 1800);
   }
 
   /* 正在演的时候再点「重新开场」，不应该变成死键：

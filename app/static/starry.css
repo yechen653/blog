@@ -155,7 +155,10 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 
 @media(max-width:560px){
   .theme-btn{width:40px;height:40px;min-height:40px}
-  .theme-panel{right:auto;left:auto;position:absolute;top:calc(100% + 8px)}
+  /* 手机上设置键紧贴右边界，面板必须以它的右缘为锚向左展开。
+     曾经写成 right:auto;left:auto，面板退回到静态位置再往右长 248px，
+     整块跑到屏幕外：点不到「重新开场」，选项也点不到。 */
+  .theme-panel{top:calc(100% + 8px)}
   .theme-switcher{order:2}
 }
 
@@ -171,12 +174,12 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 .starry-spin{will-change:transform}
 :root.is-lifted .starry-canvas{z-index:9992;opacity:1;transition:none}
 
-.sky-base,.v-ring,.sky-bones{transition:opacity .7s ease}
+.sky-base,.v-ring,.sky-bones{transition:opacity calc(.7s * var(--intro-pace,1)) ease}
 .ink-path{fill:none;stroke-linecap:round;stroke-linejoin:round}
 .sky-bone{
   fill:none;stroke-linecap:round;stroke-linejoin:round;
   transform-box:fill-box;transform-origin:center;
-  transition:opacity .5s ease,stroke .6s ease;
+  transition:opacity calc(.5s * var(--intro-pace,1)) ease,stroke .6s ease;
 }
 /* 每个旋转点一个 <g>，周期由 --orbit 决定，内圈更快 → 差速涡旋。
    data-dir=-1 用 reverse 反向；演出 ④ 阶段切到一次性 intro-orbit。 */
@@ -195,7 +198,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 :root.is-intro .v-ring{animation-play-state:paused}
 :root.is-vortex .v-ring{
   animation-name:intro-orbit;
-  animation-duration:1.15s;
+  animation-duration:calc(1.15s * var(--intro-pace,1));
   animation-iteration-count:1;
   animation-play-state:running;
 }
@@ -216,7 +219,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
     repeating-linear-gradient(0deg,rgba(120,100,70,.045) 0 1px,transparent 1px 4px),
     repeating-linear-gradient(90deg,rgba(120,100,70,.035) 0 1px,transparent 1px 5px),
     radial-gradient(ellipse at 50% 45%,rgba(255,255,255,.5),rgba(160,140,105,.12) 100%);
-  opacity:0;transition:opacity .45s ease;
+  opacity:0;transition:opacity calc(.45s * var(--intro-pace,1)) ease;
 }
 .intro-paper.is-in{opacity:1}
 .intro-paper.is-fade{opacity:0}
@@ -229,7 +232,8 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
   position:fixed;z-index:9991;pointer-events:auto;
   border-radius:50%;transform-origin:center;
   transform:scale(.012);opacity:0;
-  transition:transform 1.05s cubic-bezier(.32,.72,.24,1),opacity .55s ease;
+  transition:transform calc(1.05s * var(--intro-pace,1)) cubic-bezier(.32,.72,.24,1),
+             opacity calc(.55s * var(--intro-pace,1)) ease;
   background-color:#10233f;
   background-image:
     radial-gradient(circle at 50% 22%,rgba(255,179,71,.20) 0 12%,rgba(242,201,76,0) 42%),
@@ -246,7 +250,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 .intro-burst{
   position:fixed;inset:0;width:100%;height:100%;z-index:9994;
   pointer-events:none;overflow:visible;
-  transition:opacity .55s ease;
+  transition:opacity calc(.55s * var(--intro-pace,1)) ease;
 }
 .intro-burst path{
   fill:none;stroke-linecap:round;
@@ -254,7 +258,8 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
   stroke-dashoffset:var(--len,200);
 }
 .intro-burst.is-on path{
-  animation:burst-draw 1.15s cubic-bezier(.2,.7,.2,1) var(--delay,0s) forwards;
+  animation:burst-draw calc(1.15s * var(--intro-pace,1)) cubic-bezier(.2,.7,.2,1)
+            var(--delay,0s) forwards;
 }
 .intro-burst.is-fade{opacity:0}
 @keyframes burst-draw{to{stroke-dashoffset:0}}
@@ -311,6 +316,15 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 :root.is-3d .link-card:hover{transform:translateZ(12px)}
 :root.is-3d .btn:active{transform:translateZ(-3px) scale(.985)}
 :root.is-3d .theme-panel{transform:translateZ(26px)}
+
+/* 设置面板必须能压住后面的 .hero。
+   is-3d 给 .masthead 加了 perspective —— 它自身因此成为层叠上下文，
+   面板里的 z-index 再高也出不了这一层；而 .hero 是它的兄弟、又自带
+   perspective（同样是层叠上下文）且排在后面，于是实打实地画在面板
+   【上面】：面板看得见（hero 背景透明），点击却全部落在 .hero 上，
+   被"点外面关面板"的逻辑顺手关掉 —— 这就是「重新开场点了没反应」。 */
+:root.is-3d .masthead{position:relative;z-index:60}
+
 
 /* ── 6. 阅读态 / 减弱动效 ────────────────────────────────────── */
 :root[data-view="reading"] .starry-canvas{opacity:var(--paint-opacity-reading)}

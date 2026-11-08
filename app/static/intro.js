@@ -1,153 +1,65 @@
 /* ============================================================
-   intro.js — 星月夜主题揭幕演出
+   intro.js — 星月夜揭幕演出（绘制界面本身的过程）
    ------------------------------------------------------------
-   借用的是《使命召唤手游》星月夜皮肤「专属检视画面」的【演出语法】，
-   不是它的主体内容。本站从头到尾画的都是个人主页的版式线稿，
-   不绘制任何武器轮廓。
+   借用的是「检视画面」的演出语法，不绘制任何武器轮廓：
+   全程画的都是个人主页 / 博客页的版式线稿。
 
-   五阶段（时间见 TIMING）：
-     ① 空白画布          亚麻纹理，页面隐藏
-     ② 蓝色粗线草图       SVG path + stroke-dashoffset，笔尖沿切线走
-     ③ 厚涂成团           粗线退场，沿路径铺蓝 / 黄短笔触（impasto）
-     ④ 圆形涡心旋转       可见同心圆涡心；采样点绕心公转，
-                          角速度 ω(r) = spin/(1+r/λ) 随半径衰减，
-                          所以是"一圈一圈"的螺旋，不是整块画面刚性转
-     ⑤ 换幕 + 界面凝出    以涡心为圆心 clip-path 圆形扩散成星月夜夜空；
-                          笔触收拢回版式真实坐标并淡出，页面同位置淡入
+   与上一版的本质区别：
+     · 演出【不是】一次性覆盖层。线条不消失，结束后由
+       StarryCanvas.adopt() 接回常驻层，定格为最终界面的一部分。
+     · ⑤ 不再是「整页一起淡入」：真实 DOM 节点按版式顺序
+       inherit 涡旋末态，逐个旋正 / 落位 / 定形，动势连续衰减。
+     · 几何、采样、厚涂笔触全部复用 starry-canvas.js，
+       保证「演出画出来的」与「首屏静态那张」是同一张画。
 
-   关键取舍：
-     · 不用 Canvas：SVG viewBox 天然适配桌面 / 手机，省掉 DPR 与 resize。
-     · 不用 feTurbulence：全屏湍流滤镜每帧重算，移动端必掉帧；
-       厚涂感靠多层半透明短笔触 + round linecap 模拟。
-     · 短笔触每帧只改 3 个 <path> 的 d，不创建上千个 DOM 节点。
-     · 主题变量在演出【开始前】就已写入；overlay 用独立固定配色，
-       所以揭幕后不会先白后蓝，也不会被主题切换连带变色。
+   时间线（桌面约 5.0s，移动端整体 ×0.72）：
+     ① 空白画布 ② 油画粗线稿 ③ 厚涂成团 ④ 涡心公转
+     ⑤ 收笔定格 ⑥ 圆形换幕 ⑦ 元素归位 + 交接定格
    ============================================================ */
 (function () {
   'use strict';
 
-  var NS = 'http://www.w3.org/2000/svg';
+  var SC = window.StarryCanvas;
+  if (!SC) { console.error('[intro] 缺少 starry-canvas.js'); return; }
+
   var C = window.SITE_CONFIG || {};
   var T = C.themes || {};
+  var svg = SC.svg;
 
-  /* 桌面约 4.3s，移动端整体提速并降低采样密度 */
-  var TIMING = { blank: 260, sketch: 1400, impasto: 700, vortex: 850, night: 560, reveal: 520 };
-  var MOBILE = window.matchMedia && window.matchMedia('(max-width:700px)').matches;
-  var SPEED = MOBILE ? .72 : 1;
-  var STEP = MOBILE ? 18 : 10;
-  var SPIN_MAX = 1.5;
+  var TIMING = { blank: 260, sketch: 1500, impasto: 700, vortex: 850,
+                 settle: 150, night: 560, reveal: 950 };
+  var SPEED = SC.mobile ? .72 : 1;
+  var SPIN_MAX = SC.spinMax;
 
-  var COLORS = ['#1b4f8f', '#3a7bc8', '#7aa6d8', '#f2c94c'];
-  var playing = false;
-  var raf = 0;
-  var overlay = null;
-  var pageEls = [];
-  var disposers = [];
+  /* 归位节点：细粒度到卡片 / 段落 / 链接，而不是 body 的几个大块 */
+  var REVEAL_SELECTORS = [
+    '.masthead-inner', '.brand', '.nav', '.kicker', '.hero-title', '.hero-meta',
+    '.section-label', '.prose p', '.widget-list li', '.widget--box',
+    '.section-note', '.link-card', '.widget--back', '.toolbar',
+    '#list .card', '.pager', '.detail', '.footer-row', '.footer-word'
+  ];
+
+  var playing = false, raf = 0, overlay = null, pageEls = [], disposers = [];
 
   function reduce() {
     return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
-  function svg(tag, attrs) {
-    var el = document.createElementNS(NS, tag);
-    Object.keys(attrs || {}).forEach(function (k) { el.setAttribute(k, attrs[k]); });
-    return el;
-  }
   function on(target, type, fn) {
     target.addEventListener(type, fn);
     disposers.push(function () { target.removeEventListener(type, fn); });
   }
-
-  /* ── 版式草图：从真实 DOM 读几何，收拢时能严丝合缝对齐 ────── */
-  var SELECTORS = [
-    '.masthead-inner', '.hero-title', '.hero-meta',
-    '.section-label', '.widget--box', '.link-card',
-    '.toolbar', '#list .card', '.site-footer', '.footer-word'
-  ];
-
-  function collectFrames(W, H) {
-    var frames = [];
-    SELECTORS.forEach(function (sel) {
-      Array.prototype.forEach.call(document.querySelectorAll(sel), function (el) {
-        if (frames.length >= 16) return;
-        var r = el.getBoundingClientRect();
-        if (r.width < 60 || r.height < 14) return;
-        if (r.bottom < -20 || r.top > H + 20) return;
-        frames.push({
-          x: Math.max(-20, r.left), y: Math.max(-20, r.top),
-          w: Math.min(r.width, W + 40), h: Math.min(r.height, H + 40)
-        });
-      });
-    });
-    return frames;
+  /* 温和的 back-out：落位时带一点回弹，不做夸张弹性 */
+  function backOut(u) {
+    var t = u - 1;
+    return 1 + 2.2 * t * t * t + 1.2 * t * t;
   }
 
-  /* 每个框画成带"出头"的开放折线；前几个框再补一条交叉斜线，
-     复现参考帧里那种有速度感的手绘交叉线，而不是工程制图的闭合矩形。 */
-  function frameVerts(f, i) {
-    var o = 7 + (i % 3) * 6;
-    var x1 = f.x - o, y1 = f.y, x2 = f.x + f.w + o, y2 = f.y + f.h;
-    return [
-      { x: x1, y: y1 }, { x: x2, y: y1 },
-      { x: x2, y: y2 }, { x: x1, y: y2 },
-      { x: x1, y: y1 - o }
-    ];
-  }
-  function crossVerts(f, i) {
-    var o = 10 + (i % 2) * 8;
-    return [{ x: f.x - o, y: f.y + f.h + o }, { x: f.x + f.w + o, y: f.y - o }];
-  }
-  function vertsToD(verts) {
-    return verts.map(function (p, i) {
-      return (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
-    }).join(' ');
-  }
-  function sample(verts, step) {
-    var out = [{ x: verts[0].x, y: verts[0].y }];
-    for (var i = 1; i < verts.length; i++) {
-      var a = verts[i - 1], b = verts[i];
-      var len = Math.hypot(b.x - a.x, b.y - a.y);
-      var n = Math.max(1, Math.round(len / step));
-      for (var k = 1; k <= n; k++) {
-        var u = k / n;
-        out.push({ x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u });
-      }
-    }
-    return out;
-  }
-  function polylineLength(pts) {
-    var s = 0;
-    for (var i = 1; i < pts.length; i++) s += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-    return s;
-  }
-  function pointAt(pts, p) {
-    var total = polylineLength(pts);
-    var target = total * clamp(p, 0, 1), acc = 0;
-    for (var i = 1; i < pts.length; i++) {
-      var a = pts[i - 1], b = pts[i];
-      var seg = Math.hypot(b.x - a.x, b.y - a.y);
-      if (acc + seg >= target || i === pts.length - 1) {
-        var u = seg ? (target - acc) / seg : 0;
-        return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u,
-                 a: Math.atan2(b.y - a.y, b.x - a.x) };
-      }
-      acc += seg;
-    }
-    return { x: pts[0].x, y: pts[0].y, a: 0 };
-  }
+  /* ── 舞台 ─────────────────────────────────────────────────── */
+  function build(geo) {
+    var W = geo.W, H = geo.H, cx = geo.cx, cy = geo.cy;
+    var vcx = cx - geo.sx, vcy = cy - geo.sy;   /* CSS clip-path 用视口坐标 */
 
-  /* 差动旋转：内圈角速度大、外圈小，直线才会被排成螺旋臂。
-     等角速度只会让整块画面刚性转，没有"一圈一圈"的层次。 */
-  function warp(p, spin, cx, cy, lambda) {
-    var dx = p.x - cx, dy = p.y - cy;
-    var r = Math.hypot(dx, dy), a = Math.atan2(dy, dx);
-    var w = spin / (1 + r / lambda);
-    var rr = r * (1 - .10 * spin / SPIN_MAX);
-    return { x: cx + rr * Math.cos(a + w), y: cy + rr * Math.sin(a + w) };
-  }
-
-  /* ── 构建舞台 ─────────────────────────────────────────────── */
-  function build(W, H, cx, cy) {
     var ov = document.createElement('div');
     ov.className = 'intro-overlay';
     ov.setAttribute('aria-hidden', 'true');
@@ -158,7 +70,6 @@
 
     var night = document.createElement('div');
     night.className = 'intro-night';
-    /* 星点随圆形裁切一起扩散，正好呼应"漩涡铺成夜空" */
     for (var i = 0; i < 26; i++) {
       var star = document.createElement('span');
       star.className = 'intro-star';
@@ -172,17 +83,13 @@
     }
     var swirl = svg('svg', { 'class': 'intro-swirl', viewBox: '0 0 ' + W + ' ' + H,
                              preserveAspectRatio: 'none' });
-    /* 每层画一段 ~258° 的弧、起始角逐层错开：得到的是螺旋臂，
-       不是整圆叠出来的靶心。短 dasharray 再把它切成一笔一笔的颜料。 */
-    for (var r = 52, j = 0; r < Math.max(W, H) * .9; r += 58, j++) {
+    for (var r = 52, j = 0; r < Math.max(W, H) * .9; r += 52, j++) {
       var a0 = -.6 + j * .26, a1 = a0 + 4.5;
-      var x1 = cx + r * Math.cos(a0), y1 = cy + r * Math.sin(a0);
-      var x2 = cx + r * Math.cos(a1), y2 = cy + r * Math.sin(a1);
-      var d = 'M' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
-              ' A' + r + ' ' + r + ' 0 1 1 ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
       swirl.appendChild(svg('path', {
-        d: d, fill: 'none',
-        stroke: j % 3 === 0 ? '#f2c94c' : (j % 2 ? '#3a7bc8' : '#1b4f8f'),
+        d: 'M' + (vcx + r * Math.cos(a0)).toFixed(1) + ' ' + (vcy + r * Math.sin(a0)).toFixed(1) +
+           ' A' + r + ' ' + r + ' 0 1 1 ' +
+           (vcx + r * Math.cos(a1)).toFixed(1) + ' ' + (vcy + r * Math.sin(a1)).toFixed(1),
+        fill: 'none', stroke: j % 3 === 0 ? '#f2c94c' : (j % 2 ? '#3a7bc8' : '#1b4f8f'),
         'stroke-width': j % 3 === 0 ? 2.6 : 3.6,
         'stroke-dasharray': (16 + j % 4 * 4) + ' ' + (12 + j % 3 * 5),
         'stroke-linecap': 'round', opacity: .55
@@ -191,19 +98,46 @@
     night.appendChild(swirl);
     ov.appendChild(night);
 
+    /* 所有笔画都在【文档坐标】里；shift 组把它对齐到当前视口。
+       adopt 时整组移进常驻层，坐标体系不变。 */
     var field = svg('svg', { 'class': 'intro-svg', viewBox: '0 0 ' + W + ' ' + H,
                              preserveAspectRatio: 'none' });
+    var gShift = svg('g', { 'class': 'paint-shift',
+      transform: 'translate(' + (-geo.sx).toFixed(1) + ',' + (-geo.sy).toFixed(1) + ')' });
     var gLines = svg('g', {});
     var gVortex = svg('g', { opacity: '0' });
-    var gStrokes = svg('g', {});
-    field.appendChild(gLines);
-    field.appendChild(gVortex);
-    field.appendChild(gStrokes);
+    var gStrokes = svg('g', { opacity: '0' });
+    gShift.appendChild(gLines);
+    gShift.appendChild(gVortex);
+    gShift.appendChild(gStrokes);
+    field.appendChild(gShift);
 
-    /* 可见涡心：同心圆短笔触 + 黄色亮心 */
+    /* 飞白：一个平铺的「颗粒」图案做 mask，在粗线上打出细密断口，
+       像干笔扫过画布。只用一个 pattern + 一个 rect，不建上百节点。
+       adopt 时会被移除（defs 留在 overlay 里，不能跟着进常驻层）。 */
+    var defs = svg('defs', {});
+    var pat = svg('pattern', { id: 'intro-grain', width: 38, height: 38,
+                               patternUnits: 'userSpaceOnUse' });
+    pat.appendChild(svg('rect', { x: 0, y: 0, width: 38, height: 38, fill: '#fff' }));
+    for (var gk = 0; gk < 7; gk++) {
+      pat.appendChild(svg('ellipse', {
+        cx: (gk * 23 + 7) % 38, cy: (gk * 17 + 5) % 38,
+        rx: 1.1 + (gk % 3) * .9, ry: .8 + (gk % 2) * .7,
+        fill: '#000', opacity: .55
+      }));
+    }
+    defs.appendChild(pat);
+    var mask = svg('mask', { id: 'intro-grain-mask', maskUnits: 'userSpaceOnUse',
+                             x: -3000, y: -3000, width: 9000, height: 14000 });
+    mask.appendChild(svg('rect', { x: -3000, y: -3000, width: 9000, height: 14000,
+                                   fill: 'url(#intro-grain)' }));
+    defs.appendChild(mask);
+    field.appendChild(defs);
+    gLines.setAttribute('mask', 'url(#intro-grain-mask)');
+
     [24, 42, 62, 84].forEach(function (rr, k) {
       gVortex.appendChild(svg('circle', {
-        cx: cx, cy: cy, r: rr * (MOBILE ? .7 : 1), fill: 'none',
+        cx: cx, cy: cy, r: rr * (SC.mobile ? .7 : 1), fill: 'none',
         stroke: k % 2 ? '#3a7bc8' : '#0e2a52',
         'stroke-width': 4 - k * .4,
         'stroke-dasharray': (13 + k * 2) + ' ' + (9 + k),
@@ -213,7 +147,6 @@
     gVortex.appendChild(svg('circle', { cx: cx, cy: cy, r: 7, fill: '#f2c94c' }));
     ov.appendChild(field);
 
-    /* 毛笔：一根斜笔杆 + 深蓝笔头，笔尖落在 (12,66) */
     var brush = document.createElement('div');
     brush.className = 'intro-brush';
     brush.innerHTML =
@@ -231,36 +164,38 @@
     ov.appendChild(skip);
 
     document.body.appendChild(ov);
-    return { ov: ov, night: night, field: field, gLines: gLines,
-             gStrokes: gStrokes, gVortex: gVortex, brush: brush, skip: skip };
+    return { ov: ov, night: night, gLines: gLines, gStrokes: gStrokes,
+             gVortex: gVortex, brush: brush, skip: skip,
+             vcx: vcx, vcy: vcy };
   }
 
-  /* ── 页面隐藏 / 恢复 ──────────────────────────────────────── */
+  /* ── 草图粗线：一条线叠 3 层不同宽度 / 透明度 / 偏移，
+         模拟颜料堆边；三层共享同一个 dashoffset 生长。 ──────── */
+  var LINE_LAYERS = [
+    { w: 7.2, o: .30, dx: 0,    dy: 0,    c: '#0e2a52' },
+    { w: 4.4, o: .88, dx: 0,    dy: 0,    c: '#1b4f8f' },
+    { w: 1.5, o: .55, dx: -1.2, dy: -1.4, c: '#7aa6d8' }
+  ];
+
+  /* ── 页面隐藏 / 交接 ──────────────────────────────────────── */
   function hidePage() {
     pageEls = Array.prototype.filter.call(document.body.children, function (el) {
       var t = el.tagName;
       return t !== 'SCRIPT' && t !== 'TEMPLATE' && t !== 'NOSCRIPT' &&
-             !el.classList.contains('intro-overlay');
+             !el.classList.contains('intro-overlay') &&
+             !el.classList.contains('starry-canvas');
     });
     pageEls.forEach(function (el) {
       el.style.opacity = '0';
       if ('inert' in el) el.inert = true;
     });
   }
-  function restorePage() {
+  function cleanPage() {
     pageEls.forEach(function (el) {
-      el.style.opacity = '';
-      el.style.transition = '';
+      el.style.opacity = ''; el.style.transition = '';
       if ('inert' in el) el.inert = false;
     });
     pageEls = [];
-  }
-  function revealPage() {
-    pageEls.forEach(function (el) {
-      el.style.transition = 'opacity .5s ease';
-      el.style.opacity = '1';
-      if ('inert' in el) el.inert = false;
-    });
   }
 
   /* ── 主流程 ───────────────────────────────────────────────── */
@@ -269,87 +204,132 @@
     playing = true;
     document.dispatchEvent(new CustomEvent('site:intro', { detail: { playing: true } }));
 
-    var W = window.innerWidth, H = window.innerHeight;
-    var cx = W * (MOBILE ? .62 : .72), cy = H * (MOBILE ? .32 : .30);
-    var lambda = Math.min(W, H) * .34;
-    var maxR = Math.hypot(Math.max(cx, W - cx), Math.max(cy, H - cy)) * 1.06;
+    var geo = SC.prepare();
+    var cx = geo.cx, cy = geo.cy, lambda = geo.lambda;
+    var maxR = Math.hypot(Math.max(geo.W - (cx - geo.sx), cx - geo.sx),
+                          Math.max(geo.H - (cy - geo.sy), cy - geo.sy)) * 1.08;
     var htmlOverflow = document.documentElement.style.overflow;
     document.documentElement.style.overflow = 'hidden';
 
-    /* 先收集几何再隐藏页面（opacity 不影响 getBoundingClientRect） */
-    var frames = collectFrames(W, H);
-    var stage = build(W, H, cx, cy);
+    var stage = build(geo);
     overlay = stage.ov;
     hidePage();
 
-    var lines = [];
-    function addLine(verts, idx) {
-      var pts = sample(verts, STEP);
-      var d = vertsToD(verts);
-      var path = svg('path', { 'class': 'intro-line', d: d });
-      stage.gLines.appendChild(path);
-      var len = 0;
-      try { len = path.getTotalLength(); } catch (e) { len = polylineLength(pts); }
-      path.setAttribute('stroke-dasharray', len.toFixed(1));
-      path.setAttribute('stroke-dashoffset', len.toFixed(1));
-      lines.push({ el: path, pts: pts, len: len, delay: (idx / Math.max(1, lines.length + 8)) * .5, p: 0 });
-    }
-    frames.forEach(function (f, i) { addLine(frameVerts(f, i), i); });
-    frames.slice(0, 6).forEach(function (f, i) { addLine(crossVerts(f, i), lines.length); });
-    /* delay 按最终条数归一化，避免先后加入的线错峰比例失真 */
-    lines.forEach(function (l, i) { l.delay = (i / Math.max(1, lines.length)) * .5; });
-
-    /* 三层短笔触：每帧只改这 3 个 path 的 d，不建上千节点 */
-    var strokePaths = COLORS.map(function (color) {
-      var p = svg('path', { 'class': 'intro-stroke', stroke: color,
-                            'stroke-width': (color === '#f2c94c' ? 2.8 : 4.4),
-                            opacity: '0' });
-      stage.gStrokes.appendChild(p);
-      return p;
+    /* ② 草图：每条线的三层 path 同步生长 */
+    var lines = geo.lines.map(function (l) {
+      var paths = LINE_LAYERS.map(function (ly) {
+        var p = svg('path', { 'class': 'intro-line', d: l.d, stroke: ly.c,
+                              'stroke-width': ly.w, opacity: ly.o,
+                              transform: ly.dx || ly.dy
+                                ? 'translate(' + ly.dx + ',' + ly.dy + ')' : '' });
+        stage.gLines.appendChild(p);
+        return p;
+      });
+      /* 抖动后的实际路径比直线采样略长，dasharray 用真实长度才画得满 */
+      var len = l.len;
+      try { len = paths[0].getTotalLength(); } catch (e) { /* 离线兜底 */ }
+      paths.forEach(function (p) {
+        p.setAttribute('stroke-dasharray', len.toFixed(1));
+        p.setAttribute('stroke-dashoffset', len.toFixed(1));
+      });
+      return { spec: l, paths: paths, len: len, pts: l.pts, delay: l.delay, p: 0 };
     });
 
-    var segs = [];
-    lines.forEach(function (l) {
-      for (var i = 1; i < l.pts.length; i++) {
-        segs.push({ a: l.pts[i - 1], b: l.pts[i],
-                    layer: (i % 9 === 0) ? 3 : (i % 3 === 0 ? 1 : (i % 2 ? 0 : 2)),
-                    jitter: ((i * 37) % 13 - 6) * .012,
-                    scale: .56 + ((i * 17) % 7) * .075 });
-      }
-    });
+    /* ③④ 厚涂：6 组 path，每帧只改 6 个 d */
+    var strokePaths = SC.makePaths(stage.gStrokes, 'intro-stroke');
+    SC.drawDabs(strokePaths, geo.dabs, 0, cx, cy, lambda);
 
-    function drawStrokes(spin) {
-      var ds = ['', '', '', ''];
-      for (var i = 0; i < segs.length; i++) {
-        var g = segs[i];
-        var p = warp(g.a, spin, cx, cy, lambda);
-        var q = warp(g.b, spin, cx, cy, lambda);
-        var ang = Math.atan2(q.y - p.y, q.x - p.x) + g.jitter;
-        var len = Math.hypot(q.x - p.x, q.y - p.y) * g.scale;
-        var x2 = p.x + Math.cos(ang) * len, y2 = p.y + Math.sin(ang) * len;
-        ds[g.layer] += 'M' + p.x.toFixed(1) + ' ' + p.y.toFixed(1) +
-                       'L' + x2.toFixed(1) + ' ' + y2.toFixed(1);
-      }
-      for (var k = 0; k < strokePaths.length; k++) strokePaths[k].setAttribute('d', ds[k]);
-    }
-    drawStrokes(0);
+    /* ⑦ 元素归位：每节点继承涡旋末态的角度与半径 */
+    var revealNodes = [];
+    REVEAL_SELECTORS.forEach(function (sel) {
+      Array.prototype.forEach.call(document.querySelectorAll(sel), function (el) {
+        if (revealNodes.length >= 60) return;
+        var r = el.getBoundingClientRect();
+        if (r.width < 20 || r.height < 8) return;
+        if (r.bottom < 0 || r.top > geo.H * 1.2) return;
+        var mx = r.left + r.width / 2 + geo.sx, my = r.top + r.height / 2 + geo.sy;
+        var dx = mx - cx, dy = my - cy, dist = Math.hypot(dx, dy);
+        var ang = Math.atan2(dy, dx), amp = Math.min(46, dist * .11);
+        revealNodes.push({
+          el: el, tx: Math.cos(ang) * amp, ty: Math.sin(ang) * amp,
+          rot: clamp(dist / lambda * 7, -11, 11) * (dy >= 0 ? 1 : -1),
+          scale: .93, delay: 0
+        });
+      });
+    });
+    revealNodes.forEach(function (n, i) { n.delay = (i / Math.max(1, revealNodes.length)) * .34; });
 
     var T1 = TIMING.blank;
     var T2 = T1 + TIMING.sketch;
     var T3 = T2 + TIMING.impasto;
     var T4 = T3 + TIMING.vortex;
-    var T5 = T4 + TIMING.night;
-    var T6 = T5 + TIMING.reveal;
-    var start = 0;
-    var finished = false;
-    var guard = 0;
+    var T5 = T4 + TIMING.settle;
+    var T6 = T5 + TIMING.night;
+    var T7 = T6 + TIMING.reveal;
+    var start = 0, finished = false, guard = 0, revealStarted = false;
+
+    function placeReveal(r) {
+      if (!revealStarted) {
+        revealStarted = true;
+        /* 父容器立刻可见，但各细粒度节点从 0 开始 */
+        pageEls.forEach(function (el) {
+          el.style.transition = ''; el.style.opacity = '1';
+          if ('inert' in el) el.inert = false;
+        });
+        revealNodes.forEach(function (n) {
+          n.el.style.opacity = '0';
+          n.el.style.transform =
+            'translate(' + n.tx.toFixed(1) + 'px,' + n.ty.toFixed(1) + 'px) ' +
+            'rotate(' + n.rot.toFixed(1) + 'deg) scale(' + n.scale + ')';
+        });
+      }
+      revealNodes.forEach(function (n) {
+        var u = clamp((r - n.delay) / (1 - n.delay), 0, 1);
+        var e = backOut(u), k = 1 - e;
+        n.el.style.opacity = Math.min(1, u * 1.9).toFixed(2);
+        n.el.style.transform =
+          'translate(' + (n.tx * k).toFixed(1) + 'px,' + (n.ty * k).toFixed(1) + 'px) ' +
+          'rotate(' + (n.rot * k).toFixed(2) + 'deg) scale(' + (1 - .07 * k).toFixed(3) + ')';
+      });
+    }
 
     function finish() {
       if (finished) return;
       finished = true;
       cancelAnimationFrame(raf);
       clearTimeout(guard);
-      restorePage();
+
+      /* 无论正常结束、跳过还是后台兜底，都定格成完整的一张画 */
+      lines.forEach(function (l) {
+        l.paths.forEach(function (p, k) {
+          p.setAttribute('stroke-dashoffset', '0');
+          p.style.opacity = String(LINE_LAYERS[k].o * .34);
+        });
+      });
+      stage.gLines.removeAttribute('mask');   /* defs 留在 overlay，不能跟着定格 */
+      SC.drawDabs(strokePaths, geo.dabs, 0, cx, cy, lambda);
+      stage.gStrokes.setAttribute('opacity', '1');
+      SC.adopt({ lines: stage.gLines, strokes: stage.gStrokes });
+
+      /* 涡旋的动能平滑衰减 2.4s，而不是在交接那一帧被切断 */
+      var cv = document.querySelector('.starry-canvas');
+      if (cv && !reduce()) {
+        cv.classList.remove('just-revealed');
+        void cv.offsetWidth;
+        cv.classList.add('just-revealed');
+        var clearSettle = function (e) {
+          if (e.animationName !== 'settle-spin') return;
+          cv.classList.remove('just-revealed');
+          cv.removeEventListener('animationend', clearSettle);
+        };
+        cv.addEventListener('animationend', clearSettle);
+      }
+
+      /* 清掉所有归位 inline 样式，避免残留影响后续交互 */
+      revealNodes.forEach(function (n) {
+        n.el.style.opacity = ''; n.el.style.transform = ''; n.el.style.transition = '';
+      });
+      cleanPage();
       if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
       overlay = null;
       document.documentElement.style.overflow = htmlOverflow;
@@ -368,58 +348,81 @@
       var t = (now - start) / SPEED;
       var spin = 0;
 
-      /* ② 粗线草图：dashoffset 生长；笔尖沿当前正在画的线移动 */
       if (t < T2) {
-        var p = clamp((t - T1) / TIMING.sketch, 0, 1);
-        var active = null;
+        /* ② 蓝线稿：三层同步 dashoffset 生长，笔尖沿切线走 */
+        var p = clamp((t - T1) / TIMING.sketch, 0, 1), active = null;
         lines.forEach(function (l) {
           l.p = clamp((p - l.delay) / (1 - l.delay), 0, 1);
-          l.el.setAttribute('stroke-dashoffset', (l.len * (1 - l.p)).toFixed(1));
+          l.paths.forEach(function (path) {
+            path.setAttribute('stroke-dashoffset', (l.len * (1 - l.p)).toFixed(1));
+          });
           if (l.p > .02 && l.p < .98) active = l;
         });
         if (active) {
-          var pt = pointAt(active.pts, active.p);
+          var pt = (function (pts, q) {
+            var total = 0, i;
+            for (i = 1; i < pts.length; i++) total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+            var target = total * q, acc = 0;
+            for (i = 1; i < pts.length; i++) {
+              var a = pts[i - 1], b = pts[i], seg = Math.hypot(b.x - a.x, b.y - a.y);
+              if (acc + seg >= target || i === pts.length - 1) {
+                var u = seg ? (target - acc) / seg : 0;
+                return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u,
+                         a: Math.atan2(b.y - a.y, b.x - a.x) };
+              }
+              acc += seg;
+            }
+            return { x: pts[0].x, y: pts[0].y, a: 0 };
+          })(active.pts, active.p);
           stage.brush.style.opacity = '1';
-          stage.brush.style.left = (pt.x - 12) + 'px';
-          stage.brush.style.top = (pt.y - 66) + 'px';
+          stage.brush.style.left = (pt.x - geo.sx - 12) + 'px';
+          stage.brush.style.top = (pt.y - geo.sy - 66) + 'px';
           stage.brush.style.transform = 'rotate(' + (pt.a * 180 / Math.PI - 40).toFixed(1) + 'deg)';
         } else {
           stage.brush.style.opacity = '0';
         }
       } else if (t < T3) {
-        /* ③ 厚涂：粗线退场，短笔触浮现 */
+        /* ③ 厚涂浮现：粗线只退到 .28，【不消失】 */
         var q = (t - T2) / TIMING.impasto;
         stage.brush.style.opacity = '0';
         lines.forEach(function (l) {
-          l.el.setAttribute('stroke-dashoffset', '0');
-          l.el.style.opacity = String(1 - .85 * q);
+          l.paths.forEach(function (path, k) {
+            path.setAttribute('stroke-dashoffset', '0');
+            path.style.opacity = String(LINE_LAYERS[k].o * (1 - .72 * q));
+          });
         });
-        strokePaths.forEach(function (s) { s.setAttribute('opacity', q.toFixed(2)); });
-        drawStrokes(0);
+        stage.gStrokes.setAttribute('opacity', q.toFixed(2));
+        SC.drawDabs(strokePaths, geo.dabs, 0, cx, cy, lambda);
       } else if (t < T4) {
-        /* ④ 涡心旋转：可见同心圆 + 采样点绕心公转 */
+        /* ④ 涡心公转：可见同心圆 + 差动角速度 */
         var v = (t - T3) / TIMING.vortex;
         stage.gVortex.setAttribute('opacity', Math.min(1, v * 1.6).toFixed(2));
         stage.gVortex.setAttribute('transform',
           'rotate(' + (v * 32).toFixed(1) + ' ' + cx + ' ' + cy + ')');
         spin = SPIN_MAX * v;
-        drawStrokes(spin);
+        SC.drawDabs(strokePaths, geo.dabs, spin, cx, cy, lambda);
       } else if (t < T5) {
-        /* ⑤ 换幕：圆形裁切从涡心扩散，画布一次性变成夜空 */
-        var n = (t - T4) / TIMING.night;
-        stage.night.style.clipPath =
-          'circle(' + (maxR * n).toFixed(1) + 'px at ' + cx.toFixed(1) + 'px ' + cy.toFixed(1) + 'px)';
-        spin = SPIN_MAX * (1 + .18 * n);
-        drawStrokes(spin);
+        /* ⑤ 收笔定格：spin 增速趋零，给眼睛一个事件边界 */
+        var s = (t - T4) / TIMING.settle;
+        spin = SPIN_MAX * (1 + .03 * (1 - Math.pow(1 - s, 3)));
+        SC.drawDabs(strokePaths, geo.dabs, spin, cx, cy, lambda);
       } else if (t < T6) {
-        /* 界面凝出：笔触收拢回版式真实坐标，页面在同一位置淡入 */
-        var r = (t - T5) / TIMING.reveal;
-        spin = SPIN_MAX * 1.18 * (1 - r);
-        drawStrokes(spin);
-        strokePaths.forEach(function (s) { s.setAttribute('opacity', (1 - r).toFixed(2)); });
+        /* ⑥ 换幕：以涡心为圆心圆形扩散，画布一次换成夜空 */
+        var n = (t - T5) / TIMING.night;
+        stage.night.style.clipPath =
+          'circle(' + (maxR * n).toFixed(1) + 'px at ' +
+          stage.vcx.toFixed(1) + 'px ' + stage.vcy.toFixed(1) + 'px)';
+        spin = SPIN_MAX * (1.03 + .15 * n);
+        SC.drawDabs(strokePaths, geo.dabs, spin, cx, cy, lambda);
+      } else if (t < T7) {
+        /* ⑦ 归位 + 交接：笔触收拢回版式坐标，元素逐个旋正落定 */
+        var r = (t - T6) / TIMING.reveal;
+        spin = SPIN_MAX * 1.18 * Math.pow(1 - r, 1.6);
+        SC.drawDabs(strokePaths, geo.dabs, spin, cx, cy, lambda);
         stage.gVortex.setAttribute('opacity', (1 - r).toFixed(2));
-        stage.ov.style.opacity = String(1 - r * .85);
-        if (r < .05) revealPage();
+        stage.gStrokes.setAttribute('opacity', '1');
+        stage.ov.style.opacity = String(1 - r);          /* 淡到 0，不再硬切 */
+        placeReveal(r);
       } else {
         finish();
         return;
@@ -427,13 +430,11 @@
       raf = requestAnimationFrame(frame);
     }
     raf = requestAnimationFrame(frame);
-    /* 兜底：浏览器在后台标签会暂停 rAF，用户切走再回来时演出可能停在半途，
-       页面就一直被 hidden 遮住。到点强制收尾，保证页面一定恢复可见。 */
-    guard = setTimeout(finish, T6 / SPEED + 1800);
+    /* 后台标签会暂停 rAF：到点强制收尾，且照样定格出完整画面 */
+    guard = setTimeout(finish, T7 / SPEED + 1800);
   }
 
-  /* 只在【主动切到星月夜】或【重播】时演出。
-     首次进站（head 内联脚本已设好主题）不触发，切回 Swiss 也不触发。 */
+  /* 首次进站不播（A 方案下首屏已有静态画）；切回 Swiss 不播。 */
   document.addEventListener('site:themechange', function (ev) {
     var d = ev.detail || {};
     if (d.to !== 'starry' || d.play === false || reduce() || playing) return;

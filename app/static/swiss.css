@@ -35,6 +35,23 @@
   --disabled:#9a9a9a;
   --border-strong:var(--fg);       /* 主边框；深色主题单独调柔 */
 
+  /* 字段级语义 token：把「一个 --accent 承担十种角色」拆开。
+     默认值逐一等于改绑前的取值，所以 Swiss 视觉零回归；
+     starry.css 覆盖的是【角色分配】，不只是色值。 */
+  --field-index:var(--accent);       /* 编号 / 序号 / 箭头 / hover 线 */
+  --field-kicker:var(--accent);      /* 区标签 / 头图强调词 */
+  --field-meta:var(--muted);         /* 日期 / 作者 / 阅读数 / 账号串 / 注释 */
+  --field-note:var(--muted-2);       /* 技术栈职能说明 */
+  --field-role:var(--fg);            /* 链接卡职能 */
+  --field-flag:var(--accent);        /* 草稿标记 */
+  --field-pill-bg:transparent;
+  --field-pill-fg:var(--accent);
+  --field-rule:var(--rule-soft);     /* 字段间细线 */
+  --btn-bg:var(--fg);                /* 按钮 / 提示条实底 */
+  --btn-fg:var(--on-fg);
+  --paint-opacity:.62;               /* 常驻油画层：展示态 */
+  --paint-opacity-reading:.28;       /* 常驻油画层：阅读态 */
+
   /* 字体不随主题变化 */
   --display:"Roboto Condensed","Arial Narrow","Helvetica Neue",Arial,
             "Microsoft YaHei","PingFang SC",sans-serif;
@@ -71,7 +88,7 @@ p{overflow-wrap:break-word;margin:0}
 .muted{color:var(--muted)}
 .err{color:var(--accent);font-size:.8rem;font-weight:700;min-height:18px;margin:6px 0}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.skip-link{position:absolute;left:-999px;top:8px;z-index:50;background:var(--fg);color:var(--on-fg);padding:8px 14px}
+.skip-link{position:absolute;left:-999px;top:8px;z-index:50;background:var(--btn-bg);color:var(--btn-fg);padding:8px 14px}
 .skip-link:focus-visible{left:8px}
 
 /* ── 报头 / 导航 ────────────────────────────────────────────── */
@@ -93,7 +110,7 @@ p{overflow-wrap:break-word;margin:0}
 }
 .nav-link::after{
   content:"";position:absolute;left:0;bottom:-2px;width:100%;height:2px;
-  background:var(--accent);transform:scaleX(0);transform-origin:left;
+  background:var(--field-index);transform:scaleX(0);transform-origin:left;
   transition:transform .25s ease;
 }
 .nav-link:hover::after,.nav-link:focus-visible::after{transform:scaleX(1)}
@@ -110,7 +127,7 @@ p{overflow-wrap:break-word;margin:0}
    这类拉丁词用的，套到汉字上会把字拉散，这里统一收紧并提高一点字号。 */
 .kicker{
   grid-column:1 / -1;font-size:.78rem;font-weight:700;letter-spacing:.1em;
-  color:var(--accent);
+  color:var(--field-kicker);
 }
 .hero-title{
   font-family:var(--display);font-weight:700;
@@ -118,7 +135,7 @@ p{overflow-wrap:break-word;margin:0}
      行高小于 1 会让上下两行直接叠字（"文章 / 笔记" 会糊成一团）。 */
   font-size:clamp(2.6rem,7vw,5.6rem);line-height:1.18;letter-spacing:.02em;
 }
-.hero-title em{font-style:normal;color:var(--accent)}
+.hero-title em{font-style:normal;color:var(--field-kicker)}
 /* 博客页的 hero 放在 .wrap 里，左右各已有 24px，这里抵掉，避免双重留白 */
 .wrap .hero{padding-left:0;padding-right:0}
 .hero-meta{
@@ -139,8 +156,8 @@ p{overflow-wrap:break-word;margin:0}
 /* 博客页：头图自带下边框，和下面这条 label 的边框要拉开，否则两条线贴在一起 */
 .hero + .section-label{margin-top:40px}
 .prose p{font-size:.95rem;line-height:1.75;max-width:60ch;margin-bottom:1em}
-.prose a{border-bottom:2px solid var(--accent);padding-bottom:1px}
-.prose a:hover{color:var(--accent)}
+.prose a{border-bottom:2px solid var(--field-index);padding-bottom:1px}
+.prose a:hover{color:var(--field-index)}
 
 .sidebar{
   border-left:1px solid var(--rule);padding-left:40px;
@@ -159,11 +176,11 @@ p{overflow-wrap:break-word;margin:0}
    改成两列 grid 后，编号永远在左列、条目在右列，基线对齐。 */
 .widget-list li{
   counter-increment:w;display:grid;grid-template-columns:3.2em minmax(0,1fr);
-  align-items:baseline;border-bottom:1px solid var(--rule-soft);
+  align-items:baseline;border-bottom:1px solid var(--field-rule);
   transition:background .2s ease;
 }
 .widget-list li::before{
-  content:counter(w,decimal-leading-zero) "—";font-size:.68rem;color:var(--accent);
+  content:counter(w,decimal-leading-zero) "—";font-size:.68rem;color:var(--field-index);
   letter-spacing:.06em;
 }
 .widget-list a,.widget-list span.item{
@@ -172,19 +189,19 @@ p{overflow-wrap:break-word;margin:0}
 }
 .widget-list li:hover{background:var(--shade)}
 .widget-list a:hover{text-decoration:underline;
-  text-decoration-color:var(--accent);text-underline-offset:3px}
-.widget-list span.count{font-weight:400;color:var(--muted-2)}
+  text-decoration-color:var(--field-index);text-underline-offset:3px}
+.widget-list span.count{font-weight:400;color:var(--field-note)}
 .widget--back{
   font-size:.85rem;font-weight:700;text-decoration:underline;text-underline-offset:4px;
 }
-.widget--back:hover{color:var(--accent)}
+.widget--back:hover{color:var(--field-index)}
 
 /* ── 站外主页：3 列硬分隔线索引（个人介绍页） ─────────────────
    和 .widget-list 是同一套语言（红色编号 + 细硬线 + 窄体大标题），
    但换成横向网格，避免整页连续出现第三个一模一样的编号列表。
    整张卡即 <a>，触屏上也是一整行可点区域。 */
 .section-note{
-  font-size:.75rem;color:var(--muted);letter-spacing:.02em;
+  font-size:.75rem;color:var(--field-meta);letter-spacing:.02em;
   margin:16px 0 0;
 }
 .section-note + .link-grid{margin-top:16px}
@@ -201,7 +218,7 @@ p{overflow-wrap:break-word;margin:0}
 .link-card:last-child{border-right:0}
 .link-card:hover{background:var(--shade)}
 .link-no{
-  font-size:.68rem;font-weight:700;letter-spacing:.1em;color:var(--accent);
+  font-size:.68rem;font-weight:700;letter-spacing:.1em;color:var(--field-index);
 }
 .link-name{
   font-family:var(--display);font-weight:700;
@@ -209,19 +226,20 @@ p{overflow-wrap:break-word;margin:0}
   letter-spacing:.01em;margin-top:16px;overflow-wrap:anywhere;
 }
 .link-card:hover .link-name{
-  color:var(--accent);text-decoration:underline;
+  color:var(--field-index);text-decoration:underline;
   text-decoration-thickness:2px;text-underline-offset:4px;
 }
 .link-role{
   font-size:.72rem;font-weight:700;letter-spacing:.08em;margin-top:8px;
+  color:var(--field-role);
 }
 .link-handle{
-  font-size:.68rem;color:var(--muted);margin-top:2px;
+  font-size:.68rem;color:var(--field-meta);margin-top:2px;
   overflow-wrap:anywhere;
 }
 .link-arrow{
   position:absolute;top:18px;right:18px;
-  font-size:1rem;font-weight:700;color:var(--accent);
+  font-size:1rem;font-weight:700;color:var(--field-index);
 }
 
 /* ── 页脚 ───────────────────────────────────────────────────── */
@@ -241,13 +259,13 @@ p{overflow-wrap:break-word;margin:0}
 .footer-nav{list-style:none;display:flex;gap:20px;margin:0;padding:0}
 /* 页脚也是中文标签，字号比 .footer-row 的整体小字略大一点才好读 */
 .footer-nav a{font-size:.78rem;letter-spacing:.08em}
-.footer-nav a:hover{text-decoration:underline;text-decoration-color:var(--accent);text-underline-offset:3px}
+.footer-nav a:hover{text-decoration:underline;text-decoration-color:var(--field-index);text-underline-offset:3px}
 .foot{margin:0 0 32px;font-size:.72rem;text-align:center;text-transform:uppercase;
   letter-spacing:.14em;border-top:1px solid var(--rule);padding-top:20px}
 
 /* ── 按钮 ───────────────────────────────────────────────────── */
 .btn{
-  border:1px solid var(--border-strong);background:var(--fg);color:var(--on-fg);
+  border:1px solid var(--border-strong);background:var(--btn-bg);color:var(--btn-fg);
   padding:9px 16px;border-radius:0;font:inherit;font-size:.75rem;font-weight:700;
   text-transform:uppercase;letter-spacing:.14em;transition:background .2s ease,color .2s ease;
 }
@@ -296,7 +314,7 @@ label.field.row input[type=checkbox]{width:16px;height:16px;accent-color:var(--a
 .card:hover{background:var(--shade);transform:none;box-shadow:none;border-color:var(--rule)}
 .entry-num{
   font-family:var(--display);font-weight:700;font-size:1.9rem;
-  color:var(--accent);line-height:1;
+  color:var(--field-index);line-height:1;
 }
 .entry-body{min-width:0}
 /* 标题与右侧"浏览量"用 flex 对齐，不用 float：
@@ -309,23 +327,23 @@ label.field.row input[type=checkbox]{width:16px;height:16px;accent-color:var(--a
 }
 .card-head h3::after{
   content:"";position:absolute;left:0;bottom:-3px;height:3px;width:100%;
-  background:var(--accent);transform:scaleX(0);transform-origin:left;
+  background:var(--field-index);transform:scaleX(0);transform-origin:left;
   transition:transform .3s ease;
 }
 .card:hover .card-head h3::after{transform:scaleX(1)}
-.card:hover .card-head h3{color:var(--accent)}
+.card:hover .card-head h3{color:var(--field-index)}
 .meta{
-  color:var(--muted);font-size:.72rem;font-weight:700;
+  color:var(--field-meta);font-size:.72rem;font-weight:700;
   letter-spacing:.05em;margin:9px 0 0;
 }
 .pill{
-  display:inline-block;padding:2px 0;border-radius:0;background:transparent;
-  color:var(--accent);font-size:.68rem;font-weight:700;
+  display:inline-block;padding:2px 0;border-radius:0;background:var(--field-pill-bg);
+  color:var(--field-pill-fg);font-size:.68rem;font-weight:700;
   letter-spacing:.05em;white-space:nowrap;
 }
 .card-head .pill{flex:0 0 auto}
 /* 草稿只在站长登录后可见，标红以免和已发布文章混在一起 */
-.draft-flag{color:var(--accent);font-weight:700}
+.draft-flag{color:var(--field-flag);font-weight:700}
 
 /* ── 分页 ───────────────────────────────────────────────────── */
 .pager{display:flex;align-items:center;gap:16px;justify-content:center;
@@ -333,7 +351,7 @@ label.field.row input[type=checkbox]{width:16px;height:16px;accent-color:var(--a
 
 /* ── 文章详情 ───────────────────────────────────────────────── */
 .detail{
-  border:0;border-top:4px solid var(--accent);border-radius:0;
+  border:0;border-top:4px solid var(--field-index);border-radius:0;
   background:var(--surface);padding:24px 0 0;margin-top:14px;
 }
 .detail h2{
@@ -374,7 +392,7 @@ label.field.row input[type=checkbox]{width:16px;height:16px;accent-color:var(--a
 .modal-box h2{font-family:var(--display);font-weight:700;font-size:1.6rem;
   text-transform:uppercase;margin:0 0 18px}
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);
-  background:var(--fg);color:var(--on-fg);border-left:4px solid var(--accent);
+  background:var(--btn-bg);color:var(--btn-fg);border-left:4px solid var(--accent);
   padding:11px 18px;border-radius:0;font-size:.75rem;font-weight:700;
   letter-spacing:.06em;z-index:50}
 code{background:var(--shade);padding:1px 5px;border-radius:0;

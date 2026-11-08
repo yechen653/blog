@@ -256,6 +256,10 @@ function show(name){
   ['list', 'detail', 'editor'].forEach(v => {
     $('view-' + v).hidden = (v !== name);
   });
+  /* 阅读态：文章详情 / 编辑器切纯静态，列表保持展示态动效。
+     详情是同页视图切换而非导航，所以必须靠状态而不是 URL 判断。 */
+  document.documentElement.dataset.view =
+    (name === 'detail' || name === 'editor') ? 'reading' : 'showcase';
   window.scrollTo({ top: 0 });
 }
 
@@ -628,7 +632,7 @@ function openEditor(post){
       <label class="field">正文
         <textarea class="input" name="content" rows="10" required>${esc(post ? post.content : '')}</textarea>
       </label>
-      <label class="field row" style="color:var(--fg)">
+      <label class="field row">
         <input type="checkbox" name="published" ${post && post.published ? 'checked' : ''}>
         发布（不勾就是草稿）
       </label>
@@ -750,14 +754,18 @@ $('btn-next').onclick = () => {
 
 /* 启动 */
 renderTopbar();
+show('list');   /* 顺带把 data-view 初始化为 showcase */
 loadList();
 </script>
 
 <!-- 展示数据填充：标题、品牌、导航、头图、页脚年份都在这里统一处理 -->
 <script src="/static/site.js"></script>
 
-<!-- 主题切换（持久状态）与揭幕演出（一次性事件）分层加载，互不依赖内部实现 -->
+<!-- 主题切换（持久状态）→ 常驻油画层（主题的一部分）→ 揭幕演出（一次性事件）。
+     按依赖顺序加载：canvas 在首屏就画好静态画，intro 复用它的几何与笔触，
+     演出结束后把「画出来的」笔触交接回 canvas 定格。 -->
 <script src="/static/theme.js"></script>
+<script src="/static/starry-canvas.js"></script>
 <script src="/static/intro.js"></script>
 
 </body>

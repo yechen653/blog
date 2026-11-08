@@ -1,0 +1,101 @@
+<!-- AI生成 -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>你的名字 · 个人主页</title>
+<!--
+  个人主页：整个站点的门面（由 FastAPI 在根路径 / 提供，见 app/main.py）。
+  视觉系统与 /static/index.html 共用 /static/swiss.css —— 瑞士国际主义排版风格：
+  白 / 黑 / 一点红，非对称网格，硬边框线，没有圆角、阴影和渐变。
+  想改内容，直接改下面的文字；★ 或 〔 〕 标出的都是"换成你自己的"的地方。
+-->
+<link rel="stylesheet" href="/static/swiss.css">
+</head>
+<body>
+
+<a class="skip-link" href="#main">跳到主内容</a>
+
+<!-- ── 报头 ─────────────────────────────────────────────────── -->
+<header class="masthead">
+  <div class="masthead-inner">
+    <a class="brand" href="/">BLOG<br>API</a>
+    <nav class="nav" aria-label="主导航">
+      <a class="nav-link" href="/" aria-current="page">个人介绍</a>
+      <a class="nav-link" href="/static/">博客</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ── 头图：超大标题 + 右侧竖线注记 ───────────────────────── -->
+<section class="hero">
+  <p class="kicker">№ 01 — 个人主页 · Personal Index</p>
+  <h1 class="hero-title">〔你的<br><em>名字</em>〕</h1>
+  <p class="hero-meta">
+    〔一句话介绍你自己 —— 例如：后端工程师，喜欢把学到的东西写成博客。〕
+  </p>
+</section>
+
+<div class="layout">
+
+  <!-- ── 主栏 ─────────────────────────────────────────────── -->
+  <main id="main">
+    <h2 class="section-label">About / 关于我</h2>
+    <div class="prose">
+      <p>〔这里写几段自我介绍：你是谁、在做什么、对什么感兴趣。〕</p>
+      <p>〔这个站点是自己写的一个小后端 —— FastAPI + MySQL + Redis：
+        根路径就是这张主页，<a href="/static/">/static/</a> 是配套的博客页。〕</p>
+    </div>
+
+    <h2 class="section-label" style="margin-top:40px">Stack / 在做 &amp; 会的东西</h2>
+    <ol class="widget-list">
+      <li><span class="item">Python <span class="count">Backend</span></span></li>
+      <li><span class="item">FastAPI <span class="count">Web</span></span></li>
+      <li><span class="item">SQLAlchemy <span class="count">ORM</span></span></li>
+      <li><span class="item">MySQL <span class="count">Storage</span></span></li>
+      <li><span class="item">Redis <span class="count">Cache</span></span></li>
+      <li><span class="item">Docker <span class="count">Deploy</span></span></li>
+      <!-- ★ 增删条目 -->
+    </ol>
+
+    <p style="margin-top:32px">
+      <a class="widget widget--back" href="/static/">→ 进入博客 / Read the journal</a>
+    </p>
+  </main>
+
+  <!-- ── 侧栏 ─────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="widget">
+      <h2 class="widget-label">Contact</h2>
+      <!-- ★ 改成你自己的链接；用不到的直接删掉这一行 -->
+      <ol class="widget-list">
+        <li><a href="https://github.com/〔your-github〕">GitHub <span class="count">↗</span></a></li>
+        <li><a href="mailto:〔you@example.com〕">Email <span class="count">↗</span></a></li>
+        <li><a href="/static/">博客 <span class="count">↗</span></a></li>
+      </ol>
+    </div>
+
+    <div class="widget widget--box">
+      <h2 class="widget-label">Colophon</h2>
+      <p>没有框架、没有构建、没有 npm。两张 HTML 由 FastAPI 同源提供，
+         共用一份 CSS；配色只有白、黑和一点红。</p>
+    </div>
+  </aside>
+
+</div>
+
+<!-- ── 页脚 ─────────────────────────────────────────────────── -->
+<footer class="site-footer">
+  <div class="footer-word" data-word="ARCHIVE" aria-hidden="true"></div>
+  <div class="footer-row">
+    <p>© 〔年份〕 〔你的名字〕 · Swiss Editorial</p>
+    <ul class="footer-nav">
+      <li><a href="/">个人介绍</a></li>
+      <li><a href="/static/">博客</a></li>
+    </ul>
+  </div>
+</footer>
+
+</body>
+</html>

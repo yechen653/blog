@@ -1,3 +1,4 @@
+# AI生成
 """上传测试：Form（表单）与 File（文件）。
 
 这组是**唯一会真的往磁盘写文件**的测试，所以多了一个"收拾现场"的 fixture。
@@ -14,8 +15,8 @@ import pytest
 # 和 uploads.py 里一样，相对"启动目录"（pytest 从 blog-api/ 跑）
 UPLOAD_DIR = Path("uploads")
 
-# 一个"够用"的 PNG：有正确的文件头，内容随便。
-# 接口只看 content_type，不会真的解码图片，所以这样就够了。
+# 一个"够用"的 PNG：文件头正确（魔数 \x89PNG...），内容随便。
+# 阶段17 起上传接口会用【文件头魔数】校验真实类型，所以这个头必须是真的。
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 
 FORM = "/uploads/form"
@@ -137,3 +138,15 @@ def test_upload_without_file_field(client):
     resp = client.post(FILE)
 
     assert resp.status_code == 422
+
+
+def test_upload_rejects_fake_image(client, clean_uploads):
+    """content_type 自称 image/png、内容却不是图片 —— 阶段17 的魔数校验必须拦下。
+
+    这正是"不能只信客户端"的正面证明：光靠 content_type 的粗筛会放行，
+    真去读文件头才发现根本不是 PNG。
+    """
+    resp = client.post(FILE, files={"file": ("fake.png", b"not really a png", "image/png")})
+
+    assert resp.status_code == 400
+    assert not (UPLOAD_DIR / "fake.png").exists()

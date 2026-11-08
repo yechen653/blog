@@ -1,3 +1,4 @@
+# AI生成
 """认证测试：注册（阶段7）+ 登录发 token（阶段8）+ token 校验链路。
 
 这一组测的是**所有写操作的入口**：token 从哪儿来、怎么解、什么时候算无效。
@@ -210,3 +211,40 @@ def test_token_of_deactivated_user_returns_403(client, db, alice):
 
     assert resp.status_code == 403
     assert resp.json()["detail"] == "Inactive user"
+
+
+# ══════════════════════════════════════════════════════════════
+# 四、登录限流（阶段17）
+# ══════════════════════════════════════════════════════════════
+def test_login_is_rate_limited(client):
+    """同一 IP 连续登录超过上限 → 429。
+
+    依赖 conftest 把限流的"脚本对象"换成了内存假替身，
+    所以这里数的就是真实上限次数。
+    """
+    from app.core.config import settings
+
+    limit = settings.AUTH_RATE_LIMIT
+    assert limit > 0, "限流被关了（AUTH_RATE_LIMIT=0），这条测试就失去意义"
+
+    last = None
+    for _ in range(limit + 1):
+        last = client.post(TOKEN, data={"username": "nobody", "password": "x" * 12})
+
+    assert last.status_code == 429
+    assert "Retry-After" in last.headers
+
+
+def test_rate_limit_fails_open_when_redis_down(client, broken_redis):
+    """Redis 挂了时限流【降级放行】（fail-open），而不是把登录打成 500。
+
+    和浏览量防刷同一取舍：限流是锦上添花，它的存在不该成为新的故障点。
+    """
+    from app.core.config import settings
+
+    limit = settings.AUTH_RATE_LIMIT or 10
+    resp = None
+    for _ in range(limit + 5):
+        resp = client.post(TOKEN, data={"username": "nobody", "password": "x" * 12})
+
+    assert resp.status_code == 401          # 一路放行，最后是"用户名密码不对"，不是 429

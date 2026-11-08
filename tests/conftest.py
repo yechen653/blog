@@ -1,3 +1,4 @@
+# AI生成
 """pytest 的公共地基（conftest.py）。
 
 【conftest.py 是什么？】
@@ -281,6 +282,27 @@ def _patch_redis(monkeypatch, replacement) -> None:
     """
     monkeypatch.setattr(cache, "redis_client", replacement)
     monkeypatch.setattr(health_module, "redis_client", replacement)
+
+    # 阶段17：限流用的是"脚本对象"（redis_client.register_script 的产物），
+    # 不是 redis_client 本身 —— 所以必须一并替换。
+    # 内存版只数数（单个测试不跨窗口，不做真过期）；broken 版直接抛错，用来测 fail-open。
+    # 局部 import 让这份 patch 自成一格，不必再动文件顶部的 import 列表。
+    import app.core.ratelimit as ratelimit
+
+    if isinstance(replacement, BrokenRedis):
+        def _broken_script(keys, args):
+            raise redis.RedisError("redis is down")
+
+        monkeypatch.setattr(ratelimit, "_script", _broken_script)
+    else:
+        _counts: dict[str, int] = {}
+
+        def _fake_script(keys, args):
+            key = keys[0]
+            _counts[key] = _counts.get(key, 0) + 1
+            return _counts[key]
+
+        monkeypatch.setattr(ratelimit, "_script", _fake_script)
 
 
 @pytest.fixture(autouse=True)

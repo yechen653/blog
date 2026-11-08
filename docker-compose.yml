@@ -1,0 +1,58 @@
+# 一键拉起：MySQL + Redis + 应用。适合本地复现或小服务器部署起手。
+#
+# 用法：
+#   docker compose up --build -d
+#   docker compose exec app alembic upgrade head     # 首次建表
+#
+# 说明：
+#   · app 通过服务名 db / redis 访问它们（compose 自带 DNS），所以连接串里用服务名而不是 127.0.0.1。
+#   · SECRET_KEY 这里是占位值，正式部署【务必】换成自己生成的。
+#   · 想换托管数据库 / 对象存储，只改环境变量即可，代码一行不动。
+
+services:
+  db:
+    image: mysql:8
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_DATABASE: blog
+      MYSQL_USER: blog
+      MYSQL_PASSWORD: blog123456
+      MYSQL_ROOT_PASSWORD: root123456
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -proot123456"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DATABASE_URL: mysql+pymysql://blog:blog123456@db:3306/blog?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: change-me-in-production
+      UPLOAD_DIR: uploads
+      # 前后端同源时不需要 CORS，留空即可；独立前端再填
+      CORS_ORIGINS: ""
+    ports:
+      - "8000:8000"
+    volumes:
+      # 上传的图片要落在持久卷里，别随容器销毁而丢
+      - uploads_data:/app/uploads
+
+volumes:
+  mysql_data:
+  uploads_data:

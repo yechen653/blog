@@ -1,3 +1,4 @@
+# AI生成
 """文件系统的"数据访问层"。
 
 为什么连文件系统也要分层？
@@ -15,11 +16,17 @@
 from pathlib import Path
 
 
-def save_to_disk(dest: Path, source, chunk_size: int = 1024 * 1024) -> int:
+def save_to_disk(
+    dest: Path, source, chunk_size: int = 1024 * 1024, initial: bytes = b""
+) -> int:
     """把 source 分块写入 dest，返回实际写入的字节数。
 
     分块读是为了【不让大文件一下全塞进内存】—— UploadFile.read() 不带参数就是全读，
     几十 MB 的图就把内存吃掉一大块。
+
+    initial：调用方为了"先读文件头做类型校验"而已经读走的那几个字节。
+        校验通过后必须把它们【原样补写回文件开头】，
+        否则存到盘上的文件会缺一个头（图片打不开，且 size 也会少算）。
 
     source 由 caller 负责关闭（这里只接住，不 .close()）—— 通常 caller 是 FastAPI 的
     UploadFile，关闭它的责任在 router 里那一段 `await file.close()`。
@@ -29,6 +36,9 @@ def save_to_disk(dest: Path, source, chunk_size: int = 1024 * 1024) -> int:
     """
     size = 0
     with dest.open("wb") as out:
+        if initial:
+            out.write(initial)
+            size += len(initial)
         while chunk := source.read(chunk_size):
             size += len(chunk)
             out.write(chunk)

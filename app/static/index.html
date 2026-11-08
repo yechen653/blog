@@ -1,3 +1,4 @@
+<!-- AI生成 -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -5,126 +6,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>blog-api</title>
 <!--
-  这是整个前端：一个文件，没有框架、没有构建、没有 npm。
+  这是博客页前端：一个 HTML + 一份共享 CSS，没有框架、没有构建、没有 npm。
   它由 FastAPI 自己在 /static/ 下对外提供（见 app/main.py）。
 
-  为什么这样最省事：页面和接口都来自 http://127.0.0.1:8000，
+  为什么这样最省事：页面和接口来自同一个 origin，
   浏览器认为它们【同源】，所以我们一行 CORS 配置都不用写。
+
+  视觉系统放在 /static/swiss.css：瑞士国际主义排版 —— 白 / 黑 / 一点红，
+  非对称网格、硬边框、无圆角无渐变。下面的 JS 只管数据与交互，与样式解耦。
 -->
-<style>
-  :root{
-    --bg:#f6f7f9; --card:#fff; --line:#e5e7eb;
-    --text:#1f2328; --muted:#6b7280; --brand:#4f46e5; --brand-dark:#4338ca;
-    --danger:#dc2626; --radius:10px;
-  }
-  *{box-sizing:border-box}
-
-  /* 【别删这条】让 HTML 的 hidden 属性真正管用。
-     hidden 生效靠的是浏览器默认样式里的一条 `[hidden]{display:none}`，
-     而【作者样式表永远压过浏览器默认样式表】（比的是"来源"，跟选择器权重无关）。
-     所以只要给元素自己写了 display —— .modal 的 flex、label.field 的 block ——
-     那个 `[hidden]` 就被顶掉了，元素带着 hidden 也照样显示，表现为"弹窗关不掉"。
-     与其在每个类上都补 :not([hidden])，不如这里统一压一道。
-     这里用 !important 是正当的：它的意图本来就是"压过所有其他 display 声明"。 */
-  [hidden]{display:none !important}
-
-  body{
-    margin:0; background:var(--bg); color:var(--text);
-    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
-  }
-  .wrap{max-width:820px; margin:0 auto; padding:0 16px}
-  .spacer{flex:1}
-  .muted{color:var(--muted)}
-  .err{color:var(--danger); font-size:13px; min-height:18px; margin:6px 0}
-  .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
-
-  /* 顶栏 */
-  .topbar{position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line); z-index:10}
-  .topbar .wrap{display:flex; align-items:center; gap:10px; height:56px}
-  .logo{font-size:17px; font-weight:650; margin:0; cursor:pointer; letter-spacing:.02em}
-
-  /* 按钮 */
-  .btn{border:1px solid transparent; background:var(--brand); color:#fff; padding:7px 14px;
-       border-radius:8px; font:inherit; font-size:14px; cursor:pointer; transition:.15s}
-  .btn:hover{background:var(--brand-dark)}
-  .btn:disabled{opacity:.45; cursor:not-allowed; background:#9ca3af}
-  .btn.ghost{background:#fff; color:var(--text); border-color:var(--line)}
-  .btn.ghost:hover{background:#f3f4f6}
-  .btn.ghost:disabled{background:#fff; color:var(--muted)}
-  .btn.danger{background:var(--danger)}
-  .btn.sm{padding:4px 10px; font-size:13px}
-
-  /* 输入 */
-  .input{border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 10px;
-         font:inherit; font-size:14px; outline:none; transition:.15s}
-  .input:focus{border-color:var(--brand); box-shadow:0 0 0 3px rgba(79,70,229,.13)}
-  textarea.input{resize:vertical; line-height:1.7}
-
-  /* 工具栏 */
-  .toolbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:20px 0 14px}
-  .toolbar .input{flex:0 0 auto}
-  #inp-q{width:200px}
-
-  /* 文章卡片 */
-  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-        padding:15px 17px; margin-bottom:11px; cursor:pointer; transition:.15s}
-  .card:hover{border-color:#c9cdd6; transform:translateY(-1px); box-shadow:0 3px 10px rgba(15,20,40,.06)}
-  .card-head{display:flex; align-items:baseline; gap:10px}
-  .card-head h3{margin:0; font-size:16px; font-weight:600; flex:1}
-  .meta{color:var(--muted); font-size:13px; margin:7px 0 0}
-  .pill{display:inline-block; padding:1px 8px; border-radius:999px; background:#eef2ff;
-        color:var(--brand); font-size:12px; white-space:nowrap}
-
-  /* 分页 */
-  .pager{display:flex; align-items:center; gap:12px; justify-content:center; margin:22px 0 40px}
-
-  /* 详情 */
-  .detail{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-          padding:24px; margin-top:14px}
-  .detail h2{margin:0 0 8px; font-size:23px; line-height:1.35}
-  .content{margin-top:18px; white-space:pre-wrap; word-break:break-word}
-
-  /* 编辑器表单 */
-  .editor{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-          padding:22px; margin-top:14px}
-  label.field{display:block; margin-bottom:14px; font-size:13px; color:var(--muted)}
-  label.field .input{width:100%; margin-top:5px}
-
-  /* 弹窗 */
-  .modal{position:fixed; inset:0; background:rgba(15,17,20,.45);
-         display:flex; align-items:center; justify-content:center; z-index:40}
-  .modal-box{background:#fff; border-radius:12px; padding:22px; width:340px; max-width:92vw}
-  .modal-box h2{margin:0 0 16px; font-size:18px}
-
-  /* 提示条 */
-  .toast{position:fixed; left:50%; bottom:28px; transform:translateX(-50%);
-         background:#1f2328; color:#fff; padding:9px 16px; border-radius:8px;
-         font-size:14px; z-index:50}
-  .foot{margin:0 0 32px; font-size:13px; text-align:center}
-  code{background:#eef0f3; padding:1px 5px; border-radius:4px; font-size:13px}
-
-  /* 评论（阶段15） */
-  .comments{margin-top:20px}
-  .comments h3{margin:0 0 12px; font-size:16px}
-  .comments textarea{width:100%}
-  .cmt{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-       padding:12px 14px; margin-top:10px}
-  .cmt-head{display:flex; align-items:center; gap:10px; font-size:13px}
-  .cmt-head .btn{margin-left:auto}
-  .cmt-body{margin-top:7px; white-space:pre-wrap; word-break:break-word}
-
-  /* 阶段16：回复。缩进 + 左侧竖线，一眼看出从属关系 */
-  .cmt-reply{margin-left:22px; border-left:3px solid var(--line); background:transparent}
-  .reply-box{margin-top:10px}
-  .reply-box textarea{width:100%}
-</style>
+<link rel="stylesheet" href="/static/swiss.css">
 </head>
 <body>
 
-<header class="topbar">
-  <div class="wrap">
-    <h1 class="logo" id="btn-home">blog-api</h1>
+<header class="masthead">
+  <div class="masthead-inner">
+    <h1 class="brand" id="btn-home">BLOG<br>API</h1>
     <div class="spacer"></div>
+    <nav class="nav" aria-label="主导航">
+      <a class="nav-link" href="/">个人介绍</a>
+      <a class="nav-link" href="/static/" aria-current="page">博客</a>
+    </nav>
     <span id="hello" class="muted"></span>
     <button class="btn" id="btn-login">登录</button>
     <button class="btn ghost" id="btn-logout" hidden>退出</button>
@@ -135,6 +37,18 @@
 
   <!-- ========== 视图一：文章列表 ========== -->
   <section id="view-list">
+    <!-- 站点头图：和参考风格一样，kicker + 超大标题 + 右侧竖线注记。
+         它放在 view-list 里，切到详情 / 编辑器时随视图一起隐藏。 -->
+    <section class="hero">
+      <p class="kicker">№ 02 — 文章索引 · Journal / 2026</p>
+      <h1 class="hero-title">FIELD<br><em>NOTES</em></h1>
+      <p class="hero-meta">
+        A small backend written in FastAPI: posts, two-level comments,
+        Redis-backed view dedup and guarded image uploads. 点开任意一条读全文。
+      </p>
+    </section>
+
+    <h2 class="section-label">Index / 全部文章</h2>
     <div class="toolbar">
       <input class="input" id="inp-q" placeholder="搜索标题…">
       <select class="input" id="sel-published">
@@ -163,8 +77,19 @@
 
 </main>
 
-<footer class="wrap foot muted">
-  前端只有这一个 HTML 文件，由 FastAPI 在 <code>/static/</code> 下直接提供 —— 同源，所以不需要 CORS。
+<!--
+  前端只有这一个 HTML 文件（外加共享的 swiss.css），由 FastAPI 在 /static/ 下
+  直接提供 —— 页面和接口同源，所以不需要 CORS。
+-->
+<footer class="site-footer">
+  <div class="footer-word" data-word="JOURNAL" aria-hidden="true"></div>
+  <div class="footer-row">
+    <p>© 2026 blog-api · Swiss Editorial</p>
+    <ul class="footer-nav">
+      <li><a href="/">个人介绍</a></li>
+      <li><a href="/static/">博客</a></li>
+    </ul>
+  </div>
 </footer>
 
 <!-- 登录 / 注册弹窗 -->
@@ -352,17 +277,20 @@ function renderList(page){
   if (page.items.length === 0){
     el.innerHTML = '<p class="muted">这里还没有文章。</p>';
   } else {
-    el.innerHTML = page.items.map(p => `
+    el.innerHTML = page.items.map((p, i) => `
       <article class="card" data-id="${p.id}">
-        <div class="card-head">
-          <h3>${esc(p.title)}</h3>
-          <span class="pill">${p.views} 次浏览</span>
+        <div class="entry-num">${String(state.skip + i + 1).padStart(2, '0')}</div>
+        <div class="entry-body">
+          <div class="card-head">
+            <h3>${esc(p.title)}</h3>
+            <span class="pill">${p.views} 次浏览</span>
+          </div>
+          <p class="meta">
+            ${esc(p.author ? p.author.username : '佚名')}
+            · ${fmt(p.created_at)}
+            · ${p.published ? '已发布' : '草稿'}
+          </p>
         </div>
-        <p class="meta">
-          ${esc(p.author ? p.author.username : '佚名')}
-          · ${fmt(p.created_at)}
-          · ${p.published ? '已发布' : '草稿'}
-        </p>
       </article>`).join('');
 
     el.querySelectorAll('.card').forEach(c => {
@@ -422,6 +350,7 @@ function renderDetail(p){
   const isMine = getToken() && p.author && p.author.username === getUsername();
 
   $('view-detail').innerHTML = `
+    <p class="kicker" style="margin:28px 0 12px">№ ${String(p.id).padStart(2, '0')} — Field Note / 全文</p>
     <button class="btn ghost sm" id="btn-back">← 返回列表</button>
     <article class="detail">
       <h2>${esc(p.title)}</h2>
@@ -648,6 +577,7 @@ function openEditor(post){
   const editing = !!post;
 
   $('view-editor').innerHTML = `
+    <p class="kicker" style="margin:28px 0 12px">${editing ? 'Edit / 编辑文章' : 'New / 写文章'}</p>
     <button class="btn ghost sm" id="btn-back2">← 返回</button>
     <form class="editor" id="form-post">
       <label class="field">标题

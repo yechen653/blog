@@ -1,3 +1,4 @@
+# AI生成
 """表单（Form）与文件上传（File / UploadFile）练习。
 
 这两个不是文章业务的核心，但凡是"客户端发的不是 JSON"的场景都靠它们：
@@ -51,35 +52,42 @@ async def upload_file(
     """把上传的图片存到 UPLOAD_DIR 目录，返回文件信息。
 
     这里刻意保留了三个真实项目必须处理的点：
-    1. 类型白名单 —— content_type 是客户端自报的，只能当"粗筛"；
+    1. 类型校验【两道】——content_type 白名单（粗筛，客户端自报，只能挡"手滑"）
+       + 文件头魔数 sniff（阶段17：服务器自己读字节，才真正算数）；
     2. 文件名安全 —— 客户端可能传 "../../xx.png"，用 services.safe_filename 只取最后一段；
     3. 大小限制 —— 边写边数，超了让 services 抛 413，由 crud.delete_from_disk 清掉半成品。
 
     分层后的典型形态：
         1. router 解析 multipart 拿 UploadFile
-        2. router 调 services 做白名单校验（类型不匹配由 services 抛 400）
-        3. router 算文件名 → 调 crud.save_to_disk（边写边计数）
+        2. router 调 services 做类型校验（粗筛 + 魔数；不匹配由 services 抛 400）
+        3. router 算文件名 → 读文件头 → 调 crud.save_to_disk（读走的头用 initial 补写回去）
         4. 超出大小 → 调 services.raise_too_large() 抛 413 → except 里 crud.delete_from_disk
         5. router 负责 await file.close()（crud 不接管 stream 的生命周期）
     """
     # 0) 先确保目录在（services 帮你建好空目录并返回路径）
     upload_dir = upload_svc.ensure_upload_dir_exists()
 
-    # 1) 类型白名单：让 services 决定"是不是图"
-    if not upload_svc.is_valid_image_content_type(file.content_type):
-        upload_svc.raise_wrong_type()    # services 抛 400，router 不写状态码
-
-    # 2) 文件名安全：客户端原样传过来的文件名剥掉路径部分
+    # 1) 文件名安全：客户端原样传过来的文件名剥掉路径部分
     safe_name = upload_svc.safe_filename(file.filename)
     dest = upload_dir / safe_name
 
-    # 3) 边写边数，超了就让 services 抛 413，except 里 crud 把写了一半的文件删掉
+    # 2) 类型校验 + 3) 写盘，全放进 try：任何一步失败都要清掉半成品、并关闭上传流
     try:
-        size = file_crud.save_to_disk(dest, file)   # crud 不抛 HTTPException
+        # 粗筛：content_type 必须以 image/ 开头（挡"手滑"，不是安全依据）
+        if not upload_svc.is_valid_image_content_type(file.content_type):
+            upload_svc.raise_wrong_type()                 # 400
+
+        # 真校验（阶段17）：读文件头魔数，由【服务器自己】判断真实类型
+        head = await file.read(upload_svc.HEADER_SIZE)
+        if not upload_svc.sniff_image_type(head):
+            upload_svc.raise_wrong_type()                 # 400：自称图片但内容不是图片
+
+        # 边写边数（把已读走的文件头 initial 补写回去），超了就让 services 抛 413
+        size = file_crud.save_to_disk(dest, file, initial=head)
         if upload_svc.is_over_size(size):
             upload_svc.raise_too_large()
     except Exception:
-        # crud 写盘失败 / services 校验失败 —— 都清掉半成品
+        # 校验失败 / 写盘失败 —— 都清掉半成品（不存在也无妨）
         file_crud.delete_from_disk(dest)
         raise
     finally:

@@ -1,12 +1,12 @@
-"""认证接口：注册（阶段7）+ 登录发 token（阶段8）。
+# AI生成
+"""认证接口：注册（阶段7）+ 登录发 token（阶段8）+ 限流（阶段17）。
 
 router 文件的组织习惯：把"跟登录态相关"的接口归到一组，统一挂 /auth 前缀。
 
 ═══════════════════════════════════════════════════════════════
-本阶段把"数据动作"抽去了 crud 层、"查重 + 哈希"抽去了 services 层，
-本文件的定位变纯粹了：
+本文件的分层（阶段17 把"数据动作"抽去了 crud 层、"查重 + 哈希"抽去了 services 层）：
 
-    本文件（接线层）：路径、参数声明、校验、409 / 401 / 403 翻译、状态码
+    本文件（接线层）：路径、参数声明、校验、409 / 401 / 403 / 429 翻译、状态码
     app/crud/user.py（数据层）：select / db.add / commit
     app/services/user.py（业务规则层）：register_user_unique（查重 + 哈希）
 
@@ -19,7 +19,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.deps import rate_limit
 from app.core.security import create_access_token, verify_password
 from app.crud import user as user_crud
 from app.schemas import Token, UserCreate, UserRead
@@ -30,6 +32,16 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # 注册接口可能返回的错误，写进 /docs 让调用方一眼看到
 CONFLICT = {409: {"description": "用户名或邮箱已被占用"}}
 
+# 阶段17：登录 / 注册限流依赖。
+# scope 分开写，是为了"登录被限"不会连累"注册"（各算各的额度）。
+# 依赖只为止损而存在、返回值用不上，所以参数名起成 _guard。
+login_guard = Depends(
+    rate_limit("auth:token", settings.AUTH_RATE_LIMIT, settings.AUTH_RATE_WINDOW)
+)
+register_guard = Depends(
+    rate_limit("auth:register", settings.AUTH_RATE_LIMIT, settings.AUTH_RATE_WINDOW)
+)
+
 
 @router.post(
     "/register",
@@ -38,11 +50,17 @@ CONFLICT = {409: {"description": "用户名或邮箱已被占用"}}
     summary="用户注册",
     responses=CONFLICT,
 )
-def register(payload: UserCreate, db: Session = Depends(get_db)):
+def register(
+    payload: UserCreate,
+    _guard: None = register_guard,
+    db: Session = Depends(get_db),
+):
     """注册：业务规则（查重 + 哈希）由 services 接管，本函数体只剩一行调用。
 
     密码在这里【只是参数传过去】，从来不会以任何形式出现在这里保存、打印、返回。
     services 收到明文 → 立即哈希 → 把哈希串传给 crud → 写入数据库。
+
+    阶段17：加了限流（_guard）。注册也限流，是为了挡"批量刷注册占坑"。
     """
     return register_user_unique(
         db,
@@ -59,6 +77,9 @@ def login(
     #   注意它【不是】JSON——这是 OAuth2 标准的约定，/docs 上的 Authorize 按钮也按这个规矩发请求。
     #   （表单依赖需要 python-multipart，阶段5 上传文件时已经装过了。）
     form: OAuth2PasswordRequestForm = Depends(),
+    # 阶段17：登录限流。放在这里而不是函数体里，是因为依赖在"进入函数体之前"就执行 ——
+    # 越早拦住暴力破解，越省服务器算力（连密码哈希都不用算）。
+    _guard: None = login_guard,
     db: Session = Depends(get_db),
 ):
     """登录：取用户 → 验密码 → 验启用 → 发 token。
@@ -69,6 +90,7 @@ def login(
     成功 / 失败的 HTTP 翻译全在这里完成：
         · 取不到 / 密码错 → 401
         · 账号被停用       → 403
+        · 同一 IP 请求过密 → 429（限流，阶段17；由 _guard 依赖在进入函数体前拦下）
         · 成功             → 200 + Token
 
     把"用户不存在"和"密码不对"合并成同一个错误、同一句话：

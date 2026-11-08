@@ -1,3 +1,4 @@
+# AI生成
 """上传相关的业务规则。
 
 凡是"涉及多个 crud 调用 + 业务约束"的东西放在这里；
@@ -16,6 +17,37 @@ from app.core.config import settings
 UPLOAD_DIR: Path = Path(settings.UPLOAD_DIR)
 # 单个文件上限 2MB —— 这条规矩放在 services，因为它是"业务约束"。
 MAX_SIZE: int = 2 * 1024 * 1024
+
+# 读文件头用的字节数：够覆盖要认的几种格式（WebP 要看到第 12 字节）。
+HEADER_SIZE: int = 32
+
+# 常见图片格式的"魔数"（magic number）：文件开头的固定字节，改不掉地暴露真实类型。
+_IMAGE_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
+)
+
+
+def sniff_image_type(head: bytes) -> str | None:
+    """按文件头魔数判断【真实】类型；认不出来返回 None。
+
+    为什么必须读文件头？—— 因为 `content_type` 是客户端【自报】的，
+    随手就能伪造成 image/png（is_valid_image_content_type 只能挡"手滑"）。
+    读开头几个字节由【服务器自己】判断，才算数。
+
+    覆盖：PNG / JPEG / GIF / BMP / WebP。
+    注意 WebP 是 RIFF 容器：头 4 字节是 `RIFF`、第 8~11 字节必须是 `WEBP`，
+    不能只看前 4 字节（否则任何 RIFF 文件——比如 .wav——都会被当成 WebP）。
+    """
+    if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    for signature, name in _IMAGE_SIGNATURES:
+        if head.startswith(signature):
+            return name
+    return None
 
 
 def ensure_upload_dir_exists() -> Path:

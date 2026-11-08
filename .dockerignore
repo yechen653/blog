@@ -1,0 +1,37 @@
+# 别把这些打进镜像：体积大、且镜像里用不上（依赖由 requirements 装，代码由 Dockerfile 拷）。
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+.env
+*.db
+*.sqlite3
+
+.pytest_cache/
+.idea/
+.vscode/
+.git/
+.gitignore
+
+uploads/
+tests/
+others/
+
+# OfficeAce 运行时/治理脚手架（非项目内容）
+.office-claw/
+AGENT.md
+SOUL.md
+IDENTITY.md
+USER.md
+HEARTBEAT.md
+BACKLOG.md
+agents/
+skills/
+todo/
+messages/
+coding_memory/
+memory/
+context/
+docs/

@@ -1,3 +1,4 @@
+# AI生成
 """
 配置中心：把项目所有可配置项集中到一处，统一从 .env / 环境变量读取。
 
@@ -38,6 +39,18 @@ class Settings(BaseSettings):
     # ── 上传目录 ──────────────────────────────────────────────
     # 相对"启动目录"（也就是 blog-api/）。想让文件落到别处就改这一行或 .env。
     UPLOAD_DIR: str = "uploads"
+
+    # ── 阶段17：面向公网的安全加固 ──────────────────────────────
+    # CORS 允许的来源，逗号分隔。为空 = 关闭 CORS。
+    # 前端和接口【同源】（都来自 /static/ 下的页面）时不需要它；
+    # 只有当页面部署在别的域名/端口（例如独立前端）时才按需开启。
+    # 例：CORS_ORIGINS=https://your-site.com,https://www.your-site.com
+    CORS_ORIGINS: str = ""
+
+    # 登录 / 注册限流：同一 IP 在 AUTH_RATE_WINDOW 秒内最多 AUTH_RATE_LIMIT 次。
+    # 用来挡"暴力破解密码"和"批量刷注册"。设成 0 = 关闭（方便本地开发 / 对照测试）。
+    AUTH_RATE_LIMIT: int = 10
+    AUTH_RATE_WINDOW: int = 60
 
 
 # 模块级单例：别处一律 `from app.core.config import settings` 用它

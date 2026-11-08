@@ -1,3 +1,4 @@
+# AI生成
 """冒烟测试：应用能起来、主干路能走通、测试地基本身没问题。
 
 "冒烟测试（smoke test）"这个名字来自硬件行业 —— 先通上电，看看冒不冒烟。
@@ -18,11 +19,12 @@ from app.core.config import settings
 # 一、应用活着
 # ══════════════════════════════════════════════════════════════
 def test_root(client):
-    """根路径返回欢迎语。"""
+    """根路径现在是【个人主页】（阶段17）：返回一张 HTML，不再是 JSON 欢迎语。"""
     resp = client.get("/")
 
     assert resp.status_code == 200
-    assert "message" in resp.json()
+    assert "text/html" in resp.headers["content-type"]
+    assert "<!DOCTYPE html>" in resp.text
 
 
 def test_openapi_is_available(client):

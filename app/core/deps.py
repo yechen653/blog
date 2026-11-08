@@ -1,3 +1,4 @@
+# AI生成
 """跨资源的公共依赖（给 Depends 用的东西）都放这里。
 
 和同目录其他文件的区别：
@@ -7,11 +8,12 @@
 约定：依赖的返回值通常是"打包好的一组参数"或"查好的一个对象"。
 """
 
-from fastapi import Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import ratelimit
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.models import User
@@ -109,3 +111,51 @@ def get_current_active_user(current_user: User = Depends(get_current_user)) -> U
         # 401 = "你没证明身份"；403 = "证明了，但没权限"。这里是后者。
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
     return current_user
+
+
+# ============================================================
+# 阶段17：来源 IP + 限流依赖
+# ============================================================
+def client_ip(request: Request) -> str:
+    """取请求来源 IP —— 用来回答"这是谁在看 / 谁在调"。
+
+    `request.client.host` 是 ASGI 服务器告诉我们的【对端地址】（TCP 连接层面的信息，
+    不是 HTTP 头），所以客户端伪造不了它。
+
+    别急着改成读 X-Forwarded-For：那才是客户端能随手编的。
+    只有前面确实站着【可信的】反向代理（Nginx）时才该读它，而且必须由 Nginx
+    负责【覆盖】这个头。否则任何人加一行 `X-Forwarded-For: 1.2.3.4` 就能刷爆计数 / 绕过限流。
+
+    `if request.client else` 是防一手：某些测试客户端 / 特殊 ASGI 场景下 client 是 None。
+    这种"网络身份拿不到"的边界，给个占位值也别让接口崩。
+    """
+    return request.client.host if request.client else "unknown"
+
+
+def rate_limit(scope: str, limit: int, window: int):
+    """生成一个"限流依赖"的工厂。
+
+    用法（在路由签名里加一行）：
+        login_guard = Depends(rate_limit("auth:token", settings.AUTH_RATE_LIMIT, settings.AUTH_RATE_WINDOW))
+
+    为什么做成"工厂"而不是固定一个依赖？
+        不同接口需要不同的额度与作用域：登录和注册要分开算（scope 不同），
+        将来也许给上传接口另设一个额度。工厂让"额度/作用域"成为参数，
+        一个函数覆盖所有场景。FastAPI 的依赖可以接受"返回依赖的函数"——`Depends(rate_limit(...))`。
+
+    被限时抛 429（Too Many Requests），并带上 `Retry-After` 头告诉客户端多久后再试。
+    额度与作用域都来自配置，所以关掉限流只需把 AUTH_RATE_LIMIT / AUTH_RATE_WINDOW 设成 0。
+    """
+
+    def dependency(request: Request) -> None:
+        allowed, _remaining = ratelimit.hit(
+            f"rl:{scope}:{client_ip(request)}", limit=limit, window=window
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="请求过于频繁，请稍后再试",
+                headers={"Retry-After": str(window)},
+            )
+
+    return dependency

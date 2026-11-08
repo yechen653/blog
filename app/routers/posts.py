@@ -1,3 +1,4 @@
+# AI生成
 """文章接口：参数校验（阶段2）+ 请求体 / CRUD（阶段4）+ 响应与状态码（阶段5）+ 依赖重构（阶段6）+ 写操作鉴权（阶段8）。
 
 阶段6相比阶段5的两处重构（都是 Depends，公共依赖见 app/core/deps.py）：
@@ -49,7 +50,7 @@ from sqlalchemy.orm import Session
 from app.core.cache import is_first_seen
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import PaginationParams, get_current_active_user
+from app.core.deps import PaginationParams, client_ip, get_current_active_user
 from app.crud import post as post_crud
 from app.models import Post, User
 from app.schemas import PostCreate, PostPage, PostRead, PostUpdate
@@ -199,22 +200,6 @@ def get_post(post: Post = Depends(get_post_or_404)):
     顺带注意：这个函数现在连 `db` 都不需要了，因为没有任何东西要写。
     """
     return post
-
-
-def client_ip(request: Request) -> str:
-    """取请求来源 IP —— 用来回答"这是谁在看"。
-
-    `request.client.host` 是 ASGI 服务器告诉我们的【对端地址】（TCP 连接层面的信息，
-    不是 HTTP 头），所以客户端伪造不了它。
-
-    别急着改成读 X-Forwarded-For：那才是客户端能随手编的。
-    只有前面确实站着【可信的】反向代理（Nginx）时才该读它，而且必须由 Nginx
-    负责【覆盖】这个头。否则任何人加一行 `X-Forwarded-For: 1.2.3.4` 就能刷爆计数。
-
-    `if request.client else` 是防一手：某些测试客户端 / 特殊 ASGI 场景下 client 是 None。
-    这种"网络身份拿不到"的边界，给个占位值也别让接口崩。
-    """
-    return request.client.host if request.client else "unknown"
 
 
 @router.post(

@@ -24,9 +24,9 @@
 
   var T = (window.SITE_CONFIG || {}).themes || {};
   var root = document.documentElement;
-  var TIMING = { blank: 240, sketch: 1500, impasto: 700, vortex: 850,
-                 settle: 150, night: 560, reveal: 950 };
-  var SPEED = SC.mobile ? .72 : 1;
+  var TIMING = { blank: 240, sketch: 1650, impasto: 950, vortex: 950,
+                 settle: 180, night: 620, reveal: 1050 };
+  function speed() { return SC.mobile ? .72 : 1; }
 
   var REVEAL_SELECTORS = [
     '.masthead-inner', '.brand', '.nav', '.kicker', '.hero-title', '.hero-meta',
@@ -171,18 +171,19 @@
       geo.base.style.transition = '';
       geo.rings.forEach(function (g) { g.style.transition = ''; });
     } else if (n === 3) {
-      /* 笔触一次性淡入：CSS transition 接管，后续帧 0 写入 */
+      /* 油画层接管画面：底纹与涡旋浮现，构图骨架同步退成低对比底稿。 */
+      root.classList.add('is-impasto');
       stage.brush.style.opacity = '0';
       geo.base.style.opacity = '1';
       geo.rings.forEach(function (g) { g.style.opacity = '1'; });
+      geo.bones.forEach(function (b) { b.el.style.transition = 'opacity .95s ease'; b.el.style.opacity = '.16'; });
     } else if (n === 4) {
       /* 多旋转点差速公转：切到一次性 intro-orbit 动画 */
       root.classList.add('is-vortex');
       /* 骨架各自旋转 + 平移，脱离原位、卷入天空构图 */
       geo.bones.forEach(function (b) {
-        b.el.style.transition = 'transform .85s cubic-bezier(.2,.7,.2,1), opacity .5s ease';
+        b.el.style.transition = 'transform .95s cubic-bezier(.2,.7,.2,1), opacity .5s ease';
         b.el.style.transform = b.terminal;
-        b.el.style.opacity = '';
       });
     } else if (n === 6) {
       /* 圆形换幕：scale 由合成器驱动，不写 clip-path。
@@ -217,7 +218,7 @@
     clearTimeout(guard);
 
     /* 帧 1：恢复所有常驻状态 */
-    root.classList.remove('is-intro', 'is-vortex', 'is-lifted');
+    root.classList.remove('is-intro', 'is-vortex', 'is-lifted', 'is-impasto');
     geo.base.style.opacity = '';
     geo.rings.forEach(function (g) { g.style.opacity = ''; });
     geo.bones.forEach(function (b) {
@@ -301,7 +302,7 @@
 
     function frame(now) {
       if (!start) start = now;
-      var t = (now - start) / SPEED;
+      var t = (now - start) / speed();
       if (t < T1) {
         /* ① 空白画布：什么都不写 */
       } else if (t < T2) {
@@ -328,7 +329,7 @@
     }
     raf = requestAnimationFrame(frame);
     /* 后台标签会暂停 rAF：到点强制收尾，且照样定格出完整画面 */
-    guard = setTimeout(finish, T7 / SPEED + 1600);
+    guard = setTimeout(finish, T7 / speed() + 1600);
   }
 
   /* 首次进站不播（首屏已有静态画）；切回 Swiss 不播。 */

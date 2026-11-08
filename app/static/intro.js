@@ -27,6 +27,21 @@
   var T = (window.SITE_CONFIG || {}).themes || {};
   var root = document.documentElement;
 
+  /* 本次会话是否已经看过演出的标记。
+     键里带上部署前缀（/、/v2/、/v3/ 各自独立），否则同一个域名下
+     看过主页的演出，预览环境里的新版就再也不播了。 */
+  var SEEN = 'blog.intro.seen:';
+  try {
+    var here = document.currentScript && document.currentScript.src;
+    if (here) SEEN += here.replace(/static\/intro\.js.*$/, '');
+  } catch (e) { /* 老浏览器没有 currentScript：退化成原样的键 */ }
+  function seen() {
+    try { return sessionStorage.getItem(SEEN) === '1'; } catch (e) { return false; }
+  }
+  function markSeen() {
+    try { sessionStorage.setItem(SEEN, '1'); } catch (e) { /* 隐私模式忽略 */ }
+  }
+
   var TIMING = {
     paper: 240,      /* ① 空白画布 */
     sketch: 1700,    /* ② 草图构建 */
@@ -325,6 +340,7 @@
   function play() {
     if (playing) return;
     playing = true;
+    markSeen();
     document.dispatchEvent(new CustomEvent('site:intro', { detail: { playing: true } }));
 
     geo = SC.prepare();
@@ -421,5 +437,20 @@
     play();
   });
 
-  window.SiteIntro = { isPlaying: function () { return playing; } };
+  /* 但「已经停在星月夜」的进站必须补一次演出。
+     主题存在 localStorage 里、且同一个 origin 全站共用，所以用户在主站
+     切过一次星月夜之后，再打开任何子路径（含 /v2/、/v3/ 这种预览环境）
+     首屏直接就是渲染完的油画，设置面板里的「星月夜」又正是当前项、
+     点它是个死键 —— 结果就是"动画加载不了"。这里按会话补播一次，
+     每个标签页、每个部署前缀只播一次，刷新不会重播。 */
+  function autoplay() {
+    if (playing || reduce()) return;
+    if (root.dataset.view === 'reading') return;
+    if (root.dataset.theme !== 'starry') return;
+    if (seen()) return;
+    play();
+  }
+  autoplay();
+
+  window.SiteIntro = { isPlaying: function () { return playing; }, play: play };
 })();

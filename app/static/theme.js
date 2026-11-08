@@ -98,13 +98,19 @@
   foot.appendChild(replay);
   panel.appendChild(foot);
 
-  replay.addEventListener('click', function () {
-    if (current !== 'starry' || introPlaying()) return;
+  /* 重播：已经停在星月夜时，再点一次「星月夜」就是这个动作。
+     单独抽出来是因为设置面板里的选项与底部按钮都走同一条路，
+     否则选项在"当前项"状态下就是个死键。 */
+  function replayIntro() {
+    if (current !== 'starry' || introPlaying() || reduceMotion()) return false;
     closePanel();
     document.dispatchEvent(new CustomEvent('site:themechange', {
       detail: { from: 'starry', to: 'starry', replay: true, play: true }
     }));
-  });
+    return true;
+  }
+
+  replay.addEventListener('click', replayIntro);
 
   /* ── 面板开关 ─────────────────────────────────────────────── */
   function openPanel() {
@@ -143,7 +149,14 @@
 
   /* ── 切换 ─────────────────────────────────────────────────── */
   function setTheme(next, play) {
-    if (VALID.indexOf(next) < 0 || next === current || introPlaying()) return;
+    if (VALID.indexOf(next) < 0 || introPlaying()) return;
+    /* 点的是当前主题：不要变成死键。星月夜当作"再看一次演出"，
+       Swiss 没有演出，只是收起面板。 */
+    if (next === current) {
+      if (next === 'starry' && play !== false) replayIntro();
+      else closePanel();
+      return;
+    }
     var prev = current;
     current = next;
     root.dataset.theme = next;

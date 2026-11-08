@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>blog-api</title>
+<title>博客</title>
 <!--
   这是博客页前端：一个 HTML + 一份共享 CSS，没有框架、没有构建、没有 npm。
   它由 FastAPI 自己在 /static/ 下对外提供（见 app/main.py）。
@@ -14,18 +14,23 @@
 
   视觉系统放在 /static/swiss.css：瑞士国际主义排版 —— 白 / 黑 / 一点红，
   非对称网格、硬边框、无圆角无渐变。下面的 JS 只管数据与交互，与样式解耦。
+
+  【内容与视图分离】姓名、头图文案、区标题、导航等展示数据统一来自
+  /static/site-config.js，由 /static/site.js 按 data-bind 填进本页骨架；
+  按钮、占位符、报错提示等功能性 UI 文案仍留在视图里（它们属于交互逻辑）。
 -->
 <link rel="stylesheet" href="/static/swiss.css">
+<script src="/static/site-config.js"></script>
 </head>
-<body>
+<body data-page="blog">
 
 <header class="masthead">
   <div class="masthead-inner">
-    <h1 class="brand" id="btn-home">BLOG<br>API</h1>
+    <h1 class="brand" id="btn-home" data-bind="displayName"></h1>
     <div class="spacer"></div>
     <nav class="nav" aria-label="主导航">
-      <a class="nav-link" href="/">个人介绍</a>
-      <a class="nav-link" href="/static/" aria-current="page">博客</a>
+      <a class="nav-link" href="/" data-bind="nav.profileLabel"></a>
+      <a class="nav-link" href="/static/" aria-current="page" data-bind="nav.blogLabel"></a>
     </nav>
     <span id="hello" class="muted"></span>
     <button class="btn" id="btn-login">登录</button>
@@ -40,18 +45,17 @@
     <!-- 站点头图：和参考风格一样，kicker + 超大标题 + 右侧竖线注记。
          它放在 view-list 里，切到详情 / 编辑器时随视图一起隐藏。 -->
     <section class="hero">
-      <p class="kicker">№ 02 — 文章索引 · Journal / 2026</p>
-      <h1 class="hero-title">FIELD<br><em>NOTES</em></h1>
-      <p class="hero-meta">
-        A small backend written in FastAPI: posts, two-level comments,
-        Redis-backed view dedup and guarded image uploads. 点开任意一条读全文。
-      </p>
+      <p class="kicker" data-bind="blog.kicker"></p>
+      <h1 class="hero-title"><span data-bind="blog.heroTitle.0"></span><br><em data-bind="blog.heroTitle.1"></em></h1>
+      <p class="hero-meta" data-bind="blog.heroMeta"></p>
     </section>
 
-    <h2 class="section-label">Index / 全部文章</h2>
+    <h2 class="section-label" data-bind="blog.sectionLabel"></h2>
     <div class="toolbar">
       <input class="input" id="inp-q" placeholder="搜索标题…">
-      <select class="input" id="sel-published">
+      <!-- 发布状态筛选只对站长有意义：注册已关闭，访客能看到的不该包含草稿。
+           初始 hidden，登录后在 renderTopbar() 里放开。 -->
+      <select class="input" id="sel-published" hidden aria-label="按发布状态筛选">
         <option value="">全部</option>
         <option value="true">已发布</option>
         <option value="false">草稿</option>
@@ -82,27 +86,27 @@
   直接提供 —— 页面和接口同源，所以不需要 CORS。
 -->
 <footer class="site-footer">
-  <div class="footer-word" data-word="JOURNAL" aria-hidden="true"></div>
+  <div class="footer-word" aria-hidden="true" data-bind-attr="data-word:footerWord.blog"></div>
   <div class="footer-row">
-    <p>© 2026 blog-api · Swiss Editorial</p>
+    <p>© <span id="year"></span> <span data-bind="displayName"></span></p>
     <ul class="footer-nav">
-      <li><a href="/">个人介绍</a></li>
-      <li><a href="/static/">博客</a></li>
+      <li><a href="/" data-bind="nav.profileLabel"></a></li>
+      <li><a href="/static/" data-bind="nav.blogLabel"></a></li>
     </ul>
   </div>
 </footer>
 
-<!-- 登录 / 注册弹窗 -->
+<!-- 站长登录弹窗。
+     后端的注册接口仍然保留（项目本身是学习记录，接口与 /docs 里都还在），
+     但生产环境由 nginx 把 /auth/register 拦成 403，所以前端不再提供
+     「没有账号？注册」入口 —— 给了访客也只会撞 403。 -->
 <div class="modal" id="modal" hidden>
   <div class="modal-box">
-    <h2 id="modal-title">登录</h2>
+    <h2>登录</h2>
     <form id="form-auth">
       <label class="field">用户名
         <input class="input" name="username" autocomplete="username"
                minlength="3" maxlength="50" placeholder="3~50 字" required>
-      </label>
-      <label class="field" id="row-email" hidden>邮箱
-        <input class="input" name="email" type="email" placeholder="要填一个合法的邮箱地址">
       </label>
       <label class="field">密码
         <input class="input" name="password" type="password" autocomplete="current-password"
@@ -110,8 +114,7 @@
       </label>
       <p class="err" id="auth-msg"></p>
       <div class="row">
-        <button class="btn" type="submit">确定</button>
-        <button class="btn ghost" type="button" id="btn-switch">没有账号？注册</button>
+        <button class="btn" type="submit">登录</button>
         <button class="btn ghost" type="button" id="btn-close-modal">取消</button>
       </div>
     </form>
@@ -135,7 +138,21 @@ function esc(s){
 }
 
 function fmt(iso){
-  return new Date(iso).toLocaleString('zh-CN', { hour12: false });
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  // 后端给的是不带时区的 ISO 串；展示到分钟就够了，秒对读者没有意义
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// 公开页面上的署名。
+// 后端 PostSummary.author / CommentRead.author 用的是 UserSummary（只有 id + username），
+// 而这个 username 就是【登录账号名】—— 原样印在公开页面上，等于告诉外人拿什么去试口令。
+// 展示层统一换成配置里的公开展示名（site-config.js，在 <head> 同步加载）；
+// 判断"是不是我写的"仍拿 username 和登录态比，逻辑不受影响。
+const DISPLAY_NAME = (window.SITE_CONFIG || {}).displayName || '';
+function authorLabel(obj){
+  return obj && obj.author ? DISPLAY_NAME : '佚名';
 }
 
 let toastTimer;
@@ -239,11 +256,19 @@ function show(name){
 
 function renderTopbar(){
   const logged = !!getToken();
-  $('hello').textContent = logged ? getUsername() : '';
+  $('hello').textContent = logged ? DISPLAY_NAME : '';
   $('btn-login').hidden  = logged;
   $('btn-logout').hidden = !logged;
   $('btn-new').hidden    = !logged;
   $('btn-mine').hidden   = !logged;
+
+  // 发布状态筛选（含"草稿"选项）只在登录后出现；退出时清掉残留选择，
+  // 否则下一次匿名加载会带着 published=false 去查。
+  $('sel-published').hidden = !logged;
+  if (!logged){
+    $('sel-published').value = '';
+    state.published = '';
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -259,6 +284,10 @@ async function loadList(){
   const params = new URLSearchParams({ skip: state.skip, limit: state.limit });
   if (state.q)         params.set('q', state.q);
   if (state.published) params.set('published', state.published);
+  // 匿名访客固定只看已发布：后端 GET /posts 不传 published 时【不过滤草稿】。
+  // 这里先在展示层挡住，避免草稿标题出现在公开列表里。
+  // 注意：这不能替代后端校验（直接调 API 仍取得到草稿），后端修复需另行决定。
+  if (!state.mine && !getToken()) params.set('published', 'true');
 
   const path = state.mine ? '/posts/mine' : '/posts';
   try{
@@ -286,9 +315,9 @@ function renderList(page){
             <span class="pill">${p.views} 次浏览</span>
           </div>
           <p class="meta">
-            ${esc(p.author ? p.author.username : '佚名')}
+            ${esc(authorLabel(p))}
             · ${fmt(p.created_at)}
-            · ${p.published ? '已发布' : '草稿'}
+            ${p.published ? '' : '· <span class="draft-flag">草稿</span>'}
           </p>
         </div>
       </article>`).join('');
@@ -350,15 +379,15 @@ function renderDetail(p){
   const isMine = getToken() && p.author && p.author.username === getUsername();
 
   $('view-detail').innerHTML = `
-    <p class="kicker" style="margin:28px 0 12px">№ ${String(p.id).padStart(2, '0')} — Field Note / 全文</p>
+    <p class="kicker" style="margin:28px 0 12px">阅读全文</p>
     <button class="btn ghost sm" id="btn-back">← 返回列表</button>
     <article class="detail">
       <h2>${esc(p.title)}</h2>
       <p class="meta">
-        ${esc(p.author ? p.author.username : '佚名')}
+        ${esc(authorLabel(p))}
         · ${fmt(p.created_at)}
         · <span class="pill"><span id="detail-views">${p.views}</span> 次浏览</span>
-        · ${p.published ? '已发布' : '草稿'}
+        ${p.published ? '' : '· <span class="draft-flag">草稿</span>'}
       </p>
       <div class="content">${esc(p.content)}</div>
       ${isMine ? `
@@ -372,11 +401,14 @@ function renderDetail(p){
          文章和评论是两种资源，各查各的，互不阻塞。 -->
     <section class="comments">
       <h3>评论 <span class="muted" id="comment-count"></span></h3>
-      <textarea class="input" id="inp-comment" rows="3" placeholder="说点什么…"></textarea>
-      <div class="row" style="margin-top:8px">
-        <button class="btn" id="btn-comment">发表评论</button>
-        <span class="muted" id="comment-hint"></span>
-      </div>
+      ${getToken() ? `
+        <textarea class="input" id="inp-comment" rows="3" placeholder="说点什么…"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="btn-comment">发表评论</button>
+        </div>` : `
+        <!-- 注册接口在生产被 nginx 关掉了，访客拿不到账号。
+             给一个永远发不出去的输入框只是误导，不如明说当前状态。 -->
+        <p class="muted" id="comment-hint">评论区暂未开放，登录后可以发表。</p>`}
       <div id="comment-list"></div>
     </section>`;
 
@@ -388,11 +420,9 @@ function renderDetail(p){
   const bd = $('btn-del');
   if (bd) bd.onclick = () => removePost(p.id);
 
-  // 没登录照样能看评论，只是不能发 —— 所以不藏输入框，给一行提示就好
-  const hint = $('comment-hint');
-  if (hint) hint.textContent = getToken() ? '' : '需要登录后才能评论';
-
-  $('btn-comment').onclick = () => submitComment(p.id);
+  // 访客没有输入框和按钮，所以这里只能判空绑定
+  const bc = $('btn-comment');
+  if (bc) bc.onclick = () => submitComment(p.id);
 }
 
 /* ── 阶段15：评论的三个动作（拉取 / 发表 / 删除）────────────────
@@ -423,7 +453,8 @@ function renderComments(postId, data){
 
   const box = $('comment-list');
   if (!data.items.length){
-    box.innerHTML = '<p class="muted" style="margin-top:12px">还没有评论，来说两句。</p>';
+    // 未登录时上面已经写过"评论区暂未开放"，这里再说"来说两句"就自相矛盾
+    box.innerHTML = `<p class="muted" style="margin-top:12px">${getToken() ? '还没有评论，来说两句。' : '暂无评论。'}</p>`;
     return;
   }
 
@@ -455,9 +486,10 @@ function renderComments(postId, data){
 /* 一条评论（含它下面的回复）的 HTML。
    depth 只用来决定加不加缩进样式 —— 后端保证最多两层，所以它的取值只会是 0 或 1。 */
 function commentHtml(c, depth){
-  const name = c.author ? c.author.username : '已注销用户';
+  const name = c.author ? DISPLAY_NAME : '已注销用户';
   // 和文章的 isMine 同理：只用来决定画不画"删除"按钮，安全依然由后端把关
   const mine = getToken() && c.author && c.author.username === getUsername();
+  const logged = !!getToken();
   const replies = (c.replies || []).map(r => commentHtml(r, depth + 1)).join('');
 
   return `
@@ -465,7 +497,7 @@ function commentHtml(c, depth){
       <div class="cmt-head">
         <b>${esc(name)}</b>
         <span class="muted">${fmt(c.created_at)}</span>
-        <button class="btn ghost sm" data-reply="${c.id}" data-user="${esc(name)}">回复</button>
+        ${logged ? `<button class="btn ghost sm" data-reply="${c.id}" data-user="${esc(name)}">回复</button>` : ''}
         ${mine ? `<button class="btn danger sm" data-del="${c.id}">删除</button>` : ''}
       </div>
       <div class="cmt-body">${esc(c.content)}</div>
@@ -479,7 +511,7 @@ function toggleReplyBox(postId, commentId, username){
   document.querySelectorAll('.reply-box').forEach(el => el.remove());   // 同时只留一个
   if (replyTo === commentId){ replyTo = null; return; }                 // 再点一次 = 收起
 
-  if (!getToken()){ toast('请先登录'); openModal('login'); return; }
+  if (!getToken()){ toast('请先登录'); openModal(); return; }
 
   replyTo = commentId;
   const host = document.querySelector('[data-cmt="' + commentId + '"]');
@@ -526,7 +558,7 @@ async function postComment(postId, content, parentId){
 }
 
 async function submitComment(postId){
-  if (!getToken()){ toast('请先登录'); openModal('login'); return; }
+  if (!getToken()){ toast('请先登录'); openModal(); return; }
 
   const ta = $('inp-comment');
   const content = ta.value.trim();
@@ -577,7 +609,7 @@ function openEditor(post){
   const editing = !!post;
 
   $('view-editor').innerHTML = `
-    <p class="kicker" style="margin:28px 0 12px">${editing ? 'Edit / 编辑文章' : 'New / 写文章'}</p>
+    <p class="kicker" style="margin:28px 0 12px">${editing ? '编辑文章' : '写文章'}</p>
     <button class="btn ghost sm" id="btn-back2">← 返回</button>
     <form class="editor" id="form-post">
       <label class="field">标题
@@ -629,50 +661,23 @@ function openEditor(post){
 }
 
 /* ══════════════════════════════════════════════════════════════
-   8. 登录 / 注册
+   8. 登录（注册入口已下线，见上方弹窗注释）
    ══════════════════════════════════════════════════════════════ */
 
-function openModal(mode){
+function openModal(){
   $('modal').hidden = false;
-  $('modal').dataset.mode = mode;
-  $('modal-title').textContent = mode === 'login' ? '登录' : '注册';
-  $('btn-switch').textContent  = mode === 'login' ? '没有账号？注册' : '已有账号？登录';
-
-  const emailRow = $('row-email');
-  emailRow.hidden = (mode === 'login');
-  emailRow.querySelector('input').required = (mode !== 'login');
-
   $('form-auth').reset();
   $('auth-msg').textContent = '';
 }
 
-$('btn-switch').onclick = () => {
-  openModal($('modal').dataset.mode === 'login' ? 'register' : 'login');
-};
 $('btn-close-modal').onclick = () => { $('modal').hidden = true; };
 
 $('form-auth').onsubmit = async ev => {
   ev.preventDefault();
-  const mode = $('modal').dataset.mode;
   const f = new FormData(ev.target);
   $('auth-msg').textContent = '';
 
   try{
-    if (mode === 'register'){
-      // 注册收的是 JSON（UserCreate）
-      await api('/auth/register', {
-        method: 'POST',
-        body: {
-          username: f.get('username'),
-          email:    f.get('email'),
-          password: f.get('password'),
-        },
-      });
-      toast('注册成功，请登录');
-      openModal('login');
-      return;
-    }
-
     // 登录收的是【表单】——见 api() 里 form 分支的注释
     const data = await api('/auth/token', {
       method: 'POST',
@@ -695,7 +700,7 @@ $('form-auth').onsubmit = async ev => {
    ══════════════════════════════════════════════════════════════ */
 
 $('btn-home').onclick = () => { show('list'); loadList(); };
-$('btn-login').onclick  = () => openModal('login');
+$('btn-login').onclick  = () => openModal();
 $('btn-logout').onclick = () => {
   clearSession();
   renderTopbar();
@@ -738,6 +743,9 @@ $('btn-next').onclick = () => {
 renderTopbar();
 loadList();
 </script>
+
+<!-- 展示数据填充：标题、品牌、导航、头图、页脚年份都在这里统一处理 -->
+<script src="/static/site.js"></script>
 
 </body>
 </html>

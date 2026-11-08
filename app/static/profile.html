@@ -4,82 +4,70 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>你的名字 · 个人主页</title>
+<title>个人介绍</title>
 <!--
   个人主页：整个站点的门面（由 FastAPI 在根路径 / 提供，见 app/main.py）。
-  视觉系统与 /static/index.html 共用 /static/swiss.css —— 瑞士国际主义排版风格：
-  白 / 黑 / 一点红，非对称网格，硬边框线，没有圆角、阴影和渐变。
-  想改内容，直接改下面的文字；★ 或 〔 〕 标出的都是"换成你自己的"的地方。
+
+  【内容与视图分离】本文件只是结构骨架，不含任何展示文案、姓名或链接：
+    · 展示数据  → /static/site-config.js（唯一数据源）
+    · 填充逻辑  → /static/site.js（按 data-bind / data-rich / data-repeat 挂载）
+    · 视觉风格  → /static/swiss.css
+  想改内容改配置，想改风格改本文件 + CSS，两边互不影响。
+  site-config.js 在 <head> 同步加载，site.js 在 </body> 前同步执行，
+  所以首屏不会闪空白，也没有异步竞态。
 -->
 <link rel="stylesheet" href="/static/swiss.css">
+<script src="/static/site-config.js"></script>
 </head>
-<body>
+<body data-page="profile">
 
 <a class="skip-link" href="#main">跳到主内容</a>
 
 <!-- ── 报头 ─────────────────────────────────────────────────── -->
 <header class="masthead">
   <div class="masthead-inner">
-    <a class="brand" href="/">BLOG<br>API</a>
+    <a class="brand" href="/" data-bind="displayName"></a>
     <nav class="nav" aria-label="主导航">
-      <a class="nav-link" href="/" aria-current="page">个人介绍</a>
-      <a class="nav-link" href="/static/">博客</a>
+      <a class="nav-link" href="/" aria-current="page" data-bind="nav.profileLabel"></a>
+      <a class="nav-link" href="/static/" data-bind="nav.blogLabel"></a>
     </nav>
   </div>
 </header>
 
 <!-- ── 头图：超大标题 + 右侧竖线注记 ───────────────────────── -->
 <section class="hero">
-  <p class="kicker">№ 01 — 个人主页 · Personal Index</p>
-  <h1 class="hero-title">〔你的<br><em>名字</em>〕</h1>
-  <p class="hero-meta">
-    〔一句话介绍你自己 —— 例如：后端工程师，喜欢把学到的东西写成博客。〕
-  </p>
+  <p class="kicker" data-bind="profile.kicker"></p>
+  <h1 class="hero-title"><span data-bind="displayName"></span><br><em data-bind="profile.heroSub"></em></h1>
+  <p class="hero-meta" data-bind="profile.heroMeta"></p>
 </section>
 
 <div class="layout">
 
   <!-- ── 主栏 ─────────────────────────────────────────────── -->
   <main id="main">
-    <h2 class="section-label">About / 关于我</h2>
-    <div class="prose">
-      <p>〔这里写几段自我介绍：你是谁、在做什么、对什么感兴趣。〕</p>
-      <p>〔这个站点是自己写的一个小后端 —— FastAPI + MySQL + Redis：
-        根路径就是这张主页，<a href="/static/">/static/</a> 是配套的博客页。〕</p>
-    </div>
+    <h2 class="section-label" data-bind="profile.labels.about"></h2>
+    <div class="prose" data-rich="profile.about"></div>
 
-    <h2 class="section-label" style="margin-top:40px">Stack / 在做 &amp; 会的东西</h2>
-    <ol class="widget-list">
-      <li><span class="item">Python <span class="count">Backend</span></span></li>
-      <li><span class="item">FastAPI <span class="count">Web</span></span></li>
-      <li><span class="item">SQLAlchemy <span class="count">ORM</span></span></li>
-      <li><span class="item">MySQL <span class="count">Storage</span></span></li>
-      <li><span class="item">Redis <span class="count">Cache</span></span></li>
-      <li><span class="item">Docker <span class="count">Deploy</span></span></li>
-      <!-- ★ 增删条目 -->
-    </ol>
+    <h2 class="section-label" style="margin-top:40px" data-bind="profile.labels.stack"></h2>
+    <ol class="widget-list" data-repeat="profile.stack" data-template="tpl-stack"></ol>
+
+    <!-- 站外主页：3 列硬分隔线索引。行结构在下方 <template> 里，
+         编号 / 名称 / 职能 / 账号 / 地址全部来自配置。 -->
+    <h2 class="section-label" style="margin-top:40px" data-bind="profile.labels.links"></h2>
+    <p class="section-note" data-bind="profile.linksNote"></p>
+    <div class="link-grid" data-repeat="profile.links" data-template="tpl-link"></div>
 
     <p style="margin-top:32px">
-      <a class="widget widget--back" href="/static/">→ 进入博客 / Read the journal</a>
+      <a class="widget widget--back" href="/static/"
+         data-bind="profile.cta.text" data-bind-attr="href:profile.cta.href"></a>
     </p>
   </main>
 
   <!-- ── 侧栏 ─────────────────────────────────────────────── -->
   <aside class="sidebar">
-    <div class="widget">
-      <h2 class="widget-label">Contact</h2>
-      <!-- ★ 改成你自己的链接；用不到的直接删掉这一行 -->
-      <ol class="widget-list">
-        <li><a href="https://github.com/〔your-github〕">GitHub <span class="count">↗</span></a></li>
-        <li><a href="mailto:〔you@example.com〕">Email <span class="count">↗</span></a></li>
-        <li><a href="/static/">博客 <span class="count">↗</span></a></li>
-      </ol>
-    </div>
-
     <div class="widget widget--box">
-      <h2 class="widget-label">Colophon</h2>
-      <p>没有框架、没有构建、没有 npm。两张 HTML 由 FastAPI 同源提供，
-         共用一份 CSS；配色只有白、黑和一点红。</p>
+      <h2 class="widget-label" data-bind="profile.labels.colophon"></h2>
+      <p data-bind="profile.siteNote"></p>
     </div>
   </aside>
 
@@ -87,15 +75,34 @@
 
 <!-- ── 页脚 ─────────────────────────────────────────────────── -->
 <footer class="site-footer">
-  <div class="footer-word" data-word="ARCHIVE" aria-hidden="true"></div>
+  <div class="footer-word" aria-hidden="true" data-bind-attr="data-word:footerWord.profile"></div>
   <div class="footer-row">
-    <p>© 〔年份〕 〔你的名字〕 · Swiss Editorial</p>
+    <p>© <span id="year"></span> <span data-bind="displayName"></span></p>
     <ul class="footer-nav">
-      <li><a href="/">个人介绍</a></li>
-      <li><a href="/static/">博客</a></li>
+      <li><a href="/" data-bind="nav.profileLabel"></a></li>
+      <li><a href="/static/" data-bind="nav.blogLabel"></a></li>
     </ul>
   </div>
 </footer>
+
+<noscript><p class="wrap">本页内容由站点配置渲染，需要启用 JavaScript。</p></noscript>
+
+<!-- ── 视图模板：结构归 HTML，数据归 site-config.js ─────────── -->
+<template id="tpl-stack">
+  <li><span class="item"><span data-field="name"></span><span class="count" data-field="note"></span></span></li>
+</template>
+
+<template id="tpl-link">
+  <a class="link-card" target="_blank" rel="noopener noreferrer" data-field-href="url">
+    <span class="link-no" data-field="no"></span>
+    <span class="link-name" data-field="name"></span>
+    <span class="link-role" data-field="role"></span>
+    <span class="link-handle" data-field="handle"></span>
+    <span class="link-arrow" aria-hidden="true">↗</span>
+  </a>
+</template>
+
+<script src="/static/site.js"></script>
 
 </body>
 </html>

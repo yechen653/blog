@@ -60,7 +60,7 @@ p{overflow-wrap:break-word;margin:0}
 }
 .brand{
   font-family:var(--display);font-weight:700;font-size:1.7rem;line-height:.9;
-  letter-spacing:.02em;text-transform:uppercase;cursor:pointer;
+  letter-spacing:.08em;cursor:pointer;
 }
 .nav{display:flex;gap:34px;flex-wrap:wrap;row-gap:8px;align-items:center}
 /* 导航是中文标签（个人介绍 / 博客）。原来那套 .8rem + .18em 大写字距是给
@@ -84,14 +84,17 @@ p{overflow-wrap:break-word;margin:0}
   border-bottom:1px solid var(--ink);
   display:grid;grid-template-columns:1.2fr .8fr;gap:40px;align-items:end;
 }
+/* kicker / label 现在都换成中文标签：原来 .22em 的大写字距是给 INDEX / DOCS
+   这类拉丁词用的，套到汉字上会把字拉散，这里统一收紧并提高一点字号。 */
 .kicker{
-  grid-column:1 / -1;font-size:.72rem;font-weight:700;letter-spacing:.22em;
-  text-transform:uppercase;color:var(--red);
+  grid-column:1 / -1;font-size:.78rem;font-weight:700;letter-spacing:.1em;
+  color:var(--red);
 }
 .hero-title{
   font-family:var(--display);font-weight:700;
-  font-size:clamp(2.6rem,7vw,5.6rem);line-height:.9;letter-spacing:-.01em;
-  text-transform:uppercase;
+  /* 中文两行标题不能用 .9：那是给拉丁大写字母设的，汉字字面框更高，
+     行高小于 1 会让上下两行直接叠字（"文章 / 笔记" 会糊成一团）。 */
+  font-size:clamp(2.6rem,7vw,5.6rem);line-height:1.18;letter-spacing:.02em;
 }
 .hero-title em{font-style:normal;color:var(--red)}
 /* 博客页的 hero 放在 .wrap 里，左右各已有 24px，这里抵掉，避免双重留白 */
@@ -107,7 +110,7 @@ p{overflow-wrap:break-word;margin:0}
   display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:64px;
 }
 .section-label{
-  font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.22em;
+  font-size:.78rem;font-weight:700;letter-spacing:.1em;
   border-bottom:1px solid var(--ink);padding-bottom:10px;margin-bottom:8px;
 }
 .section-label + *{margin-top:18px}
@@ -122,7 +125,7 @@ p{overflow-wrap:break-word;margin:0}
   display:flex;flex-direction:column;gap:36px;
 }
 .widget-label{
-  font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.22em;
+  font-size:.78rem;font-weight:700;letter-spacing:.1em;
   border-bottom:1px solid var(--ink);padding-bottom:8px;margin-bottom:14px;
 }
 .widget p{font-size:.85rem;line-height:1.65}
@@ -154,19 +157,64 @@ p{overflow-wrap:break-word;margin:0}
 }
 .widget--back:hover{color:var(--red)}
 
+/* ── 站外主页：3 列硬分隔线索引（个人介绍页） ─────────────────
+   和 .widget-list 是同一套语言（红色编号 + 细硬线 + 窄体大标题），
+   但换成横向网格，避免整页连续出现第三个一模一样的编号列表。
+   整张卡即 <a>，触屏上也是一整行可点区域。 */
+.section-note{
+  font-size:.75rem;color:var(--muted);letter-spacing:.02em;
+  margin:16px 0 0;
+}
+.section-note + .link-grid{margin-top:16px}
+.link-grid{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  border-top:1px solid var(--ink);border-bottom:1px solid var(--ink);
+}
+.link-card{
+  position:relative;display:flex;flex-direction:column;min-width:0;
+  padding:20px;border-right:1px solid var(--rule);min-height:158px;
+  transition:background .2s ease;
+}
+.link-card:first-child{padding-left:0}
+.link-card:last-child{border-right:0}
+.link-card:hover{background:var(--shade)}
+.link-no{
+  font-size:.68rem;font-weight:700;letter-spacing:.1em;color:var(--red);
+}
+.link-name{
+  font-family:var(--display);font-weight:700;
+  font-size:clamp(1.5rem,2.6vw,2.1rem);line-height:1.06;
+  letter-spacing:.01em;margin-top:16px;overflow-wrap:anywhere;
+}
+.link-card:hover .link-name{
+  color:var(--red);text-decoration:underline;
+  text-decoration-thickness:2px;text-underline-offset:4px;
+}
+.link-role{
+  font-size:.72rem;font-weight:700;letter-spacing:.08em;margin-top:8px;
+}
+.link-handle{
+  font-size:.68rem;color:var(--muted);margin-top:2px;
+  overflow-wrap:anywhere;
+}
+.link-arrow{
+  position:absolute;top:18px;right:18px;
+  font-size:1rem;font-weight:700;color:var(--red);
+}
+
 /* ── 页脚 ───────────────────────────────────────────────────── */
 .site-footer{border-top:1px solid var(--ink);padding:0 24px 40px}
 .footer-word{
   font-family:var(--display);font-weight:700;
-  font-size:clamp(5rem,18vw,15rem);line-height:.8;letter-spacing:-.02em;
+  font-size:clamp(5rem,18vw,15rem);line-height:1;letter-spacing:-.02em;
   color:#e6e6e3;text-align:center;user-select:none;pointer-events:none;
-  overflow:hidden;
+  padding-bottom:.06em;overflow:hidden;
 }
 .footer-word::before{content:attr(data-word)}
 .footer-row{
   max-width:1240px;margin:24px auto 0;display:flex;justify-content:space-between;
   align-items:center;flex-wrap:wrap;gap:12px;
-  font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.14em;
+  font-size:.72rem;font-weight:700;letter-spacing:.08em;
 }
 .footer-nav{list-style:none;display:flex;gap:20px;margin:0;padding:0}
 /* 页脚也是中文标签，字号比 .footer-row 的整体小字略大一点才好读 */
@@ -245,20 +293,21 @@ label.field.row input[type=checkbox]{width:16px;height:16px;accent-color:var(--r
 .card:hover .card-head h3::after{transform:scaleX(1)}
 .card:hover .card-head h3{color:var(--red)}
 .meta{
-  color:var(--muted);font-size:.68rem;font-weight:700;text-transform:uppercase;
-  letter-spacing:.14em;margin:9px 0 0;
+  color:var(--muted);font-size:.72rem;font-weight:700;
+  letter-spacing:.05em;margin:9px 0 0;
 }
 .pill{
   display:inline-block;padding:2px 0;border-radius:0;background:transparent;
-  color:var(--red);font-size:.68rem;font-weight:700;text-transform:uppercase;
-  letter-spacing:.14em;white-space:nowrap;
+  color:var(--red);font-size:.68rem;font-weight:700;
+  letter-spacing:.05em;white-space:nowrap;
 }
 .card-head .pill{flex:0 0 auto}
+/* 草稿只在站长登录后可见，标红以免和已发布文章混在一起 */
+.draft-flag{color:var(--red);font-weight:700}
 
 /* ── 分页 ───────────────────────────────────────────────────── */
 .pager{display:flex;align-items:center;gap:16px;justify-content:center;
-  margin:26px 0 40px;font-size:.72rem;font-weight:700;text-transform:uppercase;
-  letter-spacing:.14em}
+  margin:26px 0 40px;font-size:.72rem;font-weight:700;letter-spacing:.08em}
 
 /* ── 文章详情 ───────────────────────────────────────────────── */
 .detail{
@@ -267,8 +316,7 @@ label.field.row input[type=checkbox]{width:16px;height:16px;accent-color:var(--r
 }
 .detail h2{
   font-family:var(--display);font-weight:700;
-  font-size:clamp(1.8rem,4.6vw,3rem);line-height:.95;text-transform:uppercase;
-  margin:0 0 14px;
+  font-size:clamp(1.8rem,4.6vw,3rem);line-height:1.15;margin:0 0 14px;
 }
 .detail .meta{border-bottom:1px solid var(--ink);padding-bottom:16px}
 .content{
@@ -278,13 +326,13 @@ label.field.row input[type=checkbox]{width:16px;height:16px;accent-color:var(--r
 
 /* ── 评论 ───────────────────────────────────────────────────── */
 .comments{margin-top:32px;border-top:1px solid var(--ink);padding-top:18px}
-.comments h3{font-size:.72rem;font-weight:700;text-transform:uppercase;
-  letter-spacing:.22em;margin:0 0 14px}
+.comments h3{font-size:.82rem;font-weight:700;
+  letter-spacing:.1em;margin:0 0 14px}
 .comments textarea{width:100%}
 .cmt{background:#fff;border:1px solid var(--rule);border-radius:0;
   padding:14px 16px;margin-top:10px}
 .cmt-head{display:flex;align-items:center;gap:10px;font-size:.72rem;
-  font-weight:700;text-transform:uppercase;letter-spacing:.1em}
+  font-weight:700;letter-spacing:.04em}
 .cmt-head .btn{margin-left:auto}
 .cmt-body{margin-top:8px;white-space:pre-wrap;word-break:break-word;
   font-size:.9rem;line-height:1.65;text-transform:none;letter-spacing:normal}
@@ -306,7 +354,7 @@ label.field.row input[type=checkbox]{width:16px;height:16px;accent-color:var(--r
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);
   background:var(--ink);color:#fff;border-left:4px solid var(--red);
   padding:11px 18px;border-radius:0;font-size:.75rem;font-weight:700;
-  text-transform:uppercase;letter-spacing:.14em;z-index:50}
+  letter-spacing:.06em;z-index:50}
 code{background:var(--shade);padding:1px 5px;border-radius:0;
   font-size:.8rem;color:var(--red)}
 
@@ -325,6 +373,28 @@ code{background:var(--shade);padding:1px 5px;border-radius:0;
   .hero-meta{justify-self:start;max-width:none}
   .layout{grid-template-columns:1fr;gap:36px}
   .sidebar{border-left:none;padding-left:0}
+}
+
+/* 站外主页：列宽不足时（≤700px）由 3 列退成竖排行，
+   编号 / 名称 / 箭头固定三列，职能与账号排在名称下方，整行可点。 */
+@media(max-width:700px){
+  .link-grid{grid-template-columns:1fr}
+  .link-card{
+    min-height:0;padding:16px 0;border-right:0;
+    border-bottom:1px solid var(--rule);
+    display:grid;grid-template-columns:2.6em minmax(0,1fr) 1.4em;
+    align-items:baseline;gap:2px 10px;
+  }
+  .link-card:first-child{padding-left:0}
+  .link-card:last-child{border-bottom:0}
+  .link-no{grid-column:1;grid-row:1 / 4;align-self:start;padding-top:5px}
+  .link-name{grid-column:2;grid-row:1;margin-top:0;font-size:1.5rem}
+  .link-role{grid-column:2;grid-row:2;margin-top:0}
+  .link-handle{grid-column:2;grid-row:3}
+  .link-arrow{
+    position:static;grid-column:3;grid-row:1 / 4;
+    align-self:center;text-align:right;font-size:1.1rem;
+  }
 }
 
 /* 手机端（≤560px）：按"单手能读、手指能点"重排，而不是把桌面版整体缩小 */
@@ -349,12 +419,12 @@ code{background:var(--shade);padding:1px 5px;border-radius:0;
   .hero{padding:32px 20px 26px;gap:18px}
   .hero-title{font-size:clamp(2.1rem,11.5vw,3.2rem)}
   .hero-meta{font-size:.8rem;padding-left:12px;border-left-width:2px}
-  .kicker{font-size:.66rem;letter-spacing:.16em}
+  .kicker{font-size:.7rem;letter-spacing:.08em}
 
   /* 3) 单栏留白收紧，正文行宽跟随视口 */
   .wrap{padding:0 20px}
   .layout{padding:26px 20px;gap:30px}
-  .section-label{font-size:.68rem;letter-spacing:.16em}
+  .section-label{font-size:.72rem;letter-spacing:.08em}
   .hero + .section-label{margin-top:24px}
   .prose p{font-size:.92rem;line-height:1.72}
 
@@ -375,7 +445,7 @@ code{background:var(--shade);padding:1px 5px;border-radius:0;
   .card{grid-template-columns:44px minmax(0,1fr);gap:12px;padding:20px 0}
   .entry-num{font-size:1.3rem;padding-top:2px}
   .card-head h3{font-size:1.12rem}
-  .meta{font-size:.62rem;letter-spacing:.1em;margin-top:7px}
+  .meta{font-size:.66rem;letter-spacing:.03em;margin-top:7px}
   .pill{font-size:.62rem}
 
   /* 7) 详情 / 编辑器 / 评论 */
@@ -391,7 +461,7 @@ code{background:var(--shade);padding:1px 5px;border-radius:0;
   .pager{gap:10px;flex-wrap:wrap;margin:20px 0 30px;font-size:.66rem}
   .btn{min-height:42px;padding:11px 16px}
   .btn.sm{min-height:40px;padding:10px 13px;font-size:.68rem}
-  /* 纯文字链接（"→ 进入博客""API 文档 →"）行高只有十几像素，
+  /* 纯文字链接（"→ 去博客看看"）行高只有十几像素，
      手指极难点中，撑开成块级可点区域 */
   .widget--back{display:inline-block;padding:10px 0}
 
@@ -409,7 +479,13 @@ code{background:var(--shade);padding:1px 5px;border-radius:0;
   .footer-nav a{display:inline-block;padding:6px 0}
   .toast{left:12px;right:12px;bottom:14px;transform:none;text-align:center}
 
-  /* 11) 超窄屏（≤360px，如 iPhone SE）：再收一档，避免挤压 */
+  /* 11) 站外主页：触控区撑到 ~60px 以上，超长账号串再收一档字号 */
+  .link-card{padding:18px 0}
+  .link-name{font-size:1.35rem}
+  .link-handle{font-size:.66rem}
+  .section-note{font-size:.72rem}
+
+  /* 12) 超窄屏（≤360px，如 iPhone SE）：再收一档，避免挤压 */
   @media(max-width:360px){
     .hero-title{font-size:1.95rem}
     .card{grid-template-columns:36px minmax(0,1fr);gap:10px}

@@ -176,7 +176,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 .sky-bone{
   fill:none;stroke-linecap:round;stroke-linejoin:round;
   transform-box:fill-box;transform-origin:center;
-  transition:opacity .5s ease;
+  transition:opacity .95s ease,transform .95s cubic-bezier(.2,.7,.2,1);
 }
 
 /* 每个旋转点一个 <g>，周期由 --orbit 决定，内圈更快 → 差速涡旋。

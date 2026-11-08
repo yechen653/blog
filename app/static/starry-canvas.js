@@ -380,121 +380,78 @@
     return g;
   }
 
-  /* ── 版式种子：草稿从"主页的布局线"起笔 ───────────────────────
-     观众要能读出来：这条线来自报头分隔、标题块、正文栏、侧栏、页脚，
-     然后才融化进星空的流场。所以每条骨架的先头几段沿版式边缘直走，
-     再用 4 步加权过渡到 flowDir。 */
-  function layoutSeeds(C) {
-    var list = [];
-    function box(sel) {
-      var el = document.querySelector(sel);
-      if (!el) return null;
-      var r = el.getBoundingClientRect();
-      if (r.width < 60 || r.height < 14) return null;
-      if (r.top > C.H * 1.25) return null;
-      return r;
-    }
-    var mast = box('.masthead'), title = box('.hero-title');
-    var main = box('#main'), side = box('.sidebar'), foot = box('.site-footer');
+  /* ── 骨架：两条 C 形涡臂 ───────────────────────────────────────
+     演出画的第一笔只保留两个主旋转点（A 主涡 / B 副涡）各一条弧，
+     其它版式线全部删掉 —— 上一版 12 条从 DOM 边缘起笔的折线，放大看
+     就是一串随手涂的勾、G 和长 U，读不出"在画什么"。
 
-    if (mast) {
-      list.push({ x: 40, y: mast.bottom - 8, dx: 1, dy: 0, straight: 6 });
-      list.push({ x: C.W * .52, y: mast.bottom - 8, dx: 1, dy: 0, straight: 7 });
+     形状参数化成一个"开口的 C"：
+       · 半径 = 涡半径 × k，沿弧长缓慢外扩 / 内收，得到螺旋而不是同心圆
+       · 弧长 236° 左右，缺口朝向按涡心位置各自错开
+       · 半径叠两阶正弦扰动 + 逐点微抖，读起来像手画的弧，不是几何圆
+     这两条弧同时也是静态油画里的暗底宽笔，首屏就长在画上。 */
+  function vortexArc(v, cfg, rnd) {
+    var span = cfg.span * Math.PI / 180;
+    var gap = Math.PI * 2 - span;
+    var open = cfg.open * Math.PI / 180;
+    var dir = cfg.dir;
+    var a0 = open + dir * gap / 2;          /* 从缺口的这一侧起笔 */
+    var R = v.r * cfg.k;
+    var n = 72, pts = [], i;
+
+    for (i = 0; i <= n; i++) {
+      var t = i / n;
+      var a = a0 + dir * span * t;
+      /* 沿弧长缓慢外扩（螺旋而不是同心圆）+ 两阶正弦 + 逐点微抖：
+         手绘的呼吸感来自这三层，缺一层就退化成圆规画的圆。 */
+      var wob = .075 * Math.sin(t * 5.3 + cfg.ph) +
+                .032 * Math.sin(t * 11.7 + cfg.ph * 1.7) +
+                .012 * Math.sin(t * 24.3 + cfg.ph * 2.3);
+      var rad = R * (1 + cfg.drift * t) * (1 + wob);
+      pts.push({
+        x: v.x + Math.cos(a) * rad,
+        y: v.y + Math.sin(a) * rad * cfg.squash
+      });
     }
-    if (title) {
-      list.push({ x: title.left + title.width * .55, y: title.top + 4, dx: 1, dy: 0, straight: 5 });
-      list.push({ x: title.left + 4, y: title.bottom - 14, dx: 0, dy: -1, straight: 4 });
-      list.push({ x: title.left + 18, y: title.bottom - 6, dx: 1, dy: 0, straight: 5 });
-    }
-    if (main) {
-      list.push({ x: main.left + 2, y: main.top + Math.min(140, main.height * .3), dx: 0, dy: -1, straight: 5 });
-      list.push({ x: main.left + main.width * .62, y: main.top + 8, dx: 1, dy: 0, straight: 4 });
-    }
-    if (side) {
-      list.push({ x: side.left + 2, y: side.top + 34, dx: 0, dy: -1, straight: 4 });
-    }
-    if (foot) {
-      list.push({ x: C.W * .18, y: foot.top - 8, dx: 1, dy: 0, straight: 4 });
-    }
-    return list;
+    return pts;
   }
 
-  /* ── 骨架流线：演出画的线，也是静态画里的暗底宽笔 ───────────── */
   function buildBones(C, seed) {
     var rnd = rng(seed), g = svg('g', { 'class': 'sky-bones' }), meta = [];
-    var count = MOBILE ? 8 : 12;
-    var seeds = layoutSeeds(C);
-    var inks = ['#12275a', '#1d4a91', '#2a5c9e'];
 
-    for (var i = 0; i < count; i++) {
-      var sd = seeds.length ? seeds[i % seeds.length] : null;
-      var x, y, dx, dy, straight;
-      if (sd) {
-        x = sd.x + (rnd() - .5) * 46;
-        y = sd.y + (rnd() - .5) * 10;
-        dx = sd.dx; dy = sd.dy; straight = sd.straight;
-      } else {
-        x = C.W * (.06 + .88 * (i / Math.max(1, count - 1))) + (rnd() - .5) * 30;
-        y = C.H * (.10 + .42 * rnd());
-        var d0 = flowDir(x, y, C);
-        dx = d0.x; dy = d0.y; straight = 0;
-      }
+    /* 主涡的 C 开口朝右，正好把副涡让进缺口里；副涡的 C 开口朝右上。
+       两条弧因此不会相交，也不会合成一个环。绕行方向跟着各自的涡旋转向，
+       画的时候就是"顺着涡在走"。 */
+    var plan = [
+      { v: C.A, ink: 1, w: 6.2, op: .42, delay: .00,
+        cfg: { k: .66, span: 252, open: 2, dir: -1, drift: .12, squash: .92, ph: .7 } },
+      { v: C.B, ink: 0, w: 5.0, op: .36, delay: .30,
+        cfg: { k: .86, span: 236, open: -34, dir: 1, drift: -.10, squash: .88, ph: 2.1 } }
+    ];
 
-      var pts = [{ x: x, y: y }], px = x, py = y, sign = 1, locked = false;
-      var steps = 34 + Math.round(rnd() * 20);
-      for (var s2 = 0; s2 < steps; s2++) {
-        var d = flowDir(px, py, C);
-        /* 交界处若流场方向与当前笔势相反，就会画出一个回头圈；
-           在切换的那一步锁定同向分支，之后再不改。 */
-        if (!locked && s2 >= straight) {
-          sign = (d.x * dx + d.y * dy) < 0 ? -1 : 1;
-          locked = true;
-        }
-        var fx = d.x * sign, fy = d.y * sign;
-        /* 前 straight 步走版式方向，随后 6 步线性交给流场 */
-        var k = s2 < straight ? 1 : Math.max(0, 1 - (s2 - straight) / 6);
-        var vx = dx * k + fx * (1 - k), vy = dy * k + fy * (1 - k);
-        var L = Math.sqrt(vx * vx + vy * vy) || 1;
-        px += vx / L * 15; py += vy / L * 15;
-        if (px < -30 || px > C.W + 30 || py < -30 || py > C.horizon + 40) break;
-        pts.push({ x: px, y: py });
-      }
-      if (pts.length < 5) continue;
-
+    plan.forEach(function (item) {
+      var pts = vortexArc(item.v, item.cfg, rnd);
       var dstr = pts.map(function (p, k2) {
         return (k2 ? 'L' : 'M') + rr(p.x) + ' ' + rr(p.y);
       }).join('');
-      var len = 0;
-      for (var q = 1; q < pts.length; q++) {
+      var len = 0, q;
+      for (q = 1; q < pts.length; q++) {
         len += Math.sqrt(Math.pow(pts[q].x - pts[q - 1].x, 2) +
                          Math.pow(pts[q].y - pts[q - 1].y, 2));
       }
       var el = svg('path', {
         'class': 'sky-bone', d: dstr, fill: 'none',
-        stroke: inks[i % inks.length],
-        'stroke-width': (3.6 + rnd() * 5.2).toFixed(1),
-        opacity: (.32 + rnd() * .16).toFixed(2),
+        stroke: INKS[item.ink].c,
+        'stroke-width': (item.w + rnd() * .8).toFixed(1),
+        opacity: item.op.toFixed(2),
         'stroke-linecap': 'round', 'stroke-linejoin': 'round'
       });
       el.setAttribute('stroke-dasharray', len.toFixed(0));
       el.setAttribute('stroke-dashoffset', '0');
       g.appendChild(el);
 
-      /* 终态位姿：每根骨架各自旋转 + 平移，脱离版式、落入天空构图。
-         首屏静态就保持这个终态，演出只是「从版式线卷进星空」的过程。 */
-      var rot = (rnd() * 2 - 1) * 26;
-      var tx = (rnd() * 2 - 1) * C.W * .05;
-      var ty = (rnd() * 2 - 1) * C.H * .06;
-      var scale = .94 + rnd() * .10;
-      var terminal = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) ' +
-        'rotate(' + rot.toFixed(1) + 'deg) scale(' + scale.toFixed(3) + ')';
-      el.style.transform = terminal;
-
-      meta.push({
-        el: el, len: len, pts: pts, terminal: terminal,
-        delay: (i / Math.max(1, count - 1)) * .48
-      });
-    }
+      meta.push({ el: el, len: len, pts: pts, delay: item.delay });
+    });
     return { group: g, meta: meta };
   }
 

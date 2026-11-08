@@ -178,10 +178,6 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
   transform-box:fill-box;transform-origin:center;
   transition:opacity .5s ease,stroke .6s ease;
 }
-/* 演出 ②：夜空当画布，草图墨必须反着来（浅色才能在 #10233f 上看见）；
-   ③ 摘掉 is-sketch，随底纹淡入退回油画里的暗底宽笔。 */
-:root.is-sketch .sky-bone{stroke:#f6e8c6}
-
 /* 每个旋转点一个 <g>，周期由 --orbit 决定，内圈更快 → 差速涡旋。
    data-dir=-1 用 reverse 反向；演出 ④ 阶段切到一次性 intro-orbit。 */
 .v-ring{
@@ -205,10 +201,25 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 }
 
 /* ── 4. 揭幕演出的分层舞台 ─────────────────────────────────────
-   常驻画(9992) → 迸发笔触(9994) → 夜盘(9991) → 球面月(9998) → UI(9999)。
-   第一幕没有纸、没有画笔：画布就是夜本身，骨架流线直接画在夜空上，
-   所以草图墨要反过来用浅色（见下面的 is-sketch），等第 ③ 幕底纹铺上
-   再随过渡退回油画里的暗底墨。 */
+   画板(9990) → 夜盘(9991) → 常驻画(9992) → 迸发笔触(9994) → UI(9999)。
+   画板和夜盘都压在画层【下面】：画层本身没有底色（页面自己的夜色透上
+   来），所以第 ① 幕看到的是奶油画板，第 ⑤ 幕夜空从月心漫上来把画板
+   换掉，笔触全程在上面，不会被任何遮罩盖住。 */
+
+/* 画板：开场那张奶油纸。带极细的纸纹（两向 1px 栅格）和中心提亮，
+   避免大片纯色在屏幕上读成"没加载出来"。 */
+.intro-paper{
+  position:fixed;inset:0;z-index:9990;
+  pointer-events:none;
+  background-color:#efe9dc;
+  background-image:
+    repeating-linear-gradient(0deg,rgba(120,100,70,.045) 0 1px,transparent 1px 4px),
+    repeating-linear-gradient(90deg,rgba(120,100,70,.035) 0 1px,transparent 1px 5px),
+    radial-gradient(ellipse at 50% 45%,rgba(255,255,255,.5),rgba(160,140,105,.12) 100%);
+  opacity:0;transition:opacity .45s ease;
+}
+.intro-paper.is-in{opacity:1}
+.intro-paper.is-fade{opacity:0}
 
 /* 夜盘：从月心长出的夜空色圆盘，压在【画层下面】。
    这样笔触全程不被遮住，变的是"纸"被夜空替换 —— 正是第 ⑤ 幕要的
@@ -229,43 +240,6 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 }
 .intro-flood.is-open{transform:scale(1.06);opacity:1}
 .intro-flood.is-fade{opacity:0;pointer-events:none}
-
-/* 球面月：外层给 perspective，内层做脱画 / 放大 / 浮起 / 倾斜。
-   face 是 canvas 逐帧球面采样，edge 做厚度，shade 做明暗与边缘，
-   glow 做月晕 —— 月亮始终是"油画质感"，不是光滑 3D 球。 */
-.moon3d{position:fixed;z-index:9998;pointer-events:none;perspective:900px}
-.moon3d-body{
-  position:relative;width:100%;height:100%;
-  transform-style:preserve-3d;
-  opacity:0;transform:none;
-  transition:transform 1.25s cubic-bezier(.2,.7,.2,1),opacity .45s ease;
-}
-.moon3d.is-wake .moon3d-body{
-  opacity:1;
-  transform:translate3d(var(--mw-x,-64px),var(--mw-y,48px),96px)
-            rotateX(8deg) rotateY(-12deg) scale(var(--mw-s,1.34));
-}
-.moon3d.is-retract .moon3d-body{
-  opacity:0;
-  transform:translateZ(0) rotateX(0deg) rotateY(0deg) scale(.98);
-}
-.moon3d-face{position:absolute;inset:0;width:100%;height:100%;border-radius:50%}
-.moon3d-edge{
-  position:absolute;inset:0;border-radius:50%;
-  background:radial-gradient(circle at 50% 50%,#8a5a12,#5d3d0c);
-  transform:translateZ(-16px) scale(.99);
-}
-.moon3d-shade{
-  position:absolute;inset:0;border-radius:50%;
-  background:
-    radial-gradient(circle at 34% 30%,rgba(255,250,232,.42),rgba(255,250,232,0) 44%),
-    radial-gradient(circle at 50% 50%,rgba(6,16,34,0) 54%,rgba(6,16,34,.55) 100%);
-}
-.moon3d-glow{
-  position:absolute;inset:-42%;border-radius:50%;
-  background:radial-gradient(circle,rgba(242,201,76,.30),rgba(242,201,76,0) 68%);
-  transform:translateZ(-30px);opacity:.85;
-}
 
 /* 迸发笔触：蓝 / 黄 / 白，沿切向甩出；用 CSS 动画跑 dashoffset，
    不在主线程写任何属性。 */
@@ -350,9 +324,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 
 @media(prefers-reduced-motion:reduce){
   .v-ring{animation:none}
-  .intro-flood,.intro-burst{transition:none}
-  .moon3d-body{transition:none}
-  .moon3d-body{transform:none!important;opacity:1}
+  .intro-paper,.intro-flood,.intro-burst{transition:none}
   :root.is-3d .masthead-inner,
   :root.is-3d .hero > *,
   :root.is-3d .layout > main,

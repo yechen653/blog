@@ -100,9 +100,11 @@
 
   /* 重播：已经停在星月夜时，再点一次「星月夜」就是这个动作。
      单独抽出来是因为设置面板里的选项与底部按钮都走同一条路，
-     否则选项在"当前项"状态下就是个死键。 */
+     否则选项在"当前项"状态下就是个死键。
+     演出进行中也允许点 —— intro.js 会等这一轮拆台完成后再从第一幕重来，
+     这样按钮不会变成"灰了八秒钟"的死键。 */
   function replayIntro() {
-    if (current !== 'starry' || introPlaying() || reduceMotion()) return false;
+    if (current !== 'starry' || reduceMotion()) return false;
     closePanel();
     document.dispatchEvent(new CustomEvent('site:themechange', {
       detail: { from: 'starry', to: 'starry', replay: true, play: true }
@@ -141,21 +143,27 @@
       o.el.setAttribute('aria-pressed', on ? 'true' : 'false');
       o.mark.textContent = on ? (T.current || '使用中') : '';
     });
-    replay.disabled = current !== 'starry' || introPlaying();
-    btn.disabled = introPlaying();
+    /* 设置键与「重新开场」在演出期间都不锁：演出是在全屏台上跑的，
+       锁住只会让用户以为功能坏了。重复点由 intro.js 排队重来。 */
+    replay.disabled = current !== 'starry';
     if (introPlaying() && !panel.hidden) closePanel();
   }
   render();
 
   /* ── 切换 ─────────────────────────────────────────────────── */
   function setTheme(next, play) {
-    if (VALID.indexOf(next) < 0 || introPlaying()) return;
+    if (VALID.indexOf(next) < 0) return;
     /* 点的是当前主题：不要变成死键。星月夜当作"再看一次演出"，
        Swiss 没有演出，只是收起面板。 */
     if (next === current) {
       if (next === 'starry' && play !== false) replayIntro();
       else closePanel();
       return;
+    }
+    /* 演出进行中切走：先让演出收尾还原页面，再换主题 ——
+       否则画层被直接摘掉，演出还在往已经不在文档里的节点上写字。 */
+    if (introPlaying() && window.SiteIntro && window.SiteIntro.stop) {
+      window.SiteIntro.stop();
     }
     var prev = current;
     current = next;

@@ -14,7 +14,7 @@
 - **用户**：注册 / 登录（JWT）、密码 bcrypt 哈希、越权防护
 - **上传**：图片；类型**双校验**（`content_type` 粗筛 + 文件头魔数）、大小限制、路径穿越防护
 - **安全（阶段17）**：登录 / 注册**限流**、CORS 按需开启
-- **前端**：无框架、无构建、无 npm，两张 HTML + 一份共享 CSS（`swiss.css`）+ 原生 JS（`app/static/`）；视觉为瑞士国际主义排版（白 / 黑 / 一点红，非对称网格、硬边框、无圆角无渐变）
+- **前端**：无框架、无构建、无 npm，两张 HTML + 一份共享 CSS（`swiss.css`）+ 少量原生 JS（`app/static/`）；视觉为瑞士国际主义排版（白 / 黑 / 一点红，非对称网格、硬边框、无圆角无渐变）。**展示内容与视图分离**：姓名、简介、技术栈、站外链接、导航、标题等全在 `site-config.js`，由 `site.js` 填进 HTML 骨架
 - **健康检查**：`/health`、`/health/db`、`/health/redis`
 
 ## 快速开始（本机）
@@ -64,11 +64,20 @@ app/
   services/        业务规则层
   crud/            数据访问层（数据库 / Redis / 磁盘）
   models/ schemas/ ORM 模型 / Pydantic 契约
-  static/          前端：profile.html（个人主页）/ index.html（博客页）/ swiss.css（共享视觉系统）
+  static/
+    profile.html       个人主页：结构骨架（不含展示文案）
+    index.html         博客页：结构骨架 + 交互逻辑
+    site-config.js     【改内容改这里】全站展示数据唯一来源
+    site.js            把配置按 data-bind / data-rich / data-repeat 填进骨架
+    swiss.css          【改风格改这里】共享视觉系统
 migrations/        Alembic 迁移
 tests/             测试（需 MySQL）
 others/notes/      学习笔记
 ```
+
+调整展示内容（改名字、改简介、增删站外链接、改栏目名）只动 `site-config.js`；
+调整展示风格只动 HTML 骨架与 `swiss.css`，两边不用互相搬运。
+内容由 `site.js` 在浏览器端渲染，因此页面需要启用 JavaScript。
 
 ## 分层约定
 

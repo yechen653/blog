@@ -191,6 +191,8 @@
     { sel: '.masthead',          side: 'bottom', kind: 'h' },
     { sel: '.hero',              side: 'bottom', kind: 'h' },
     { sel: '.section-label',     side: 'bottom', kind: 'h' },
+    /* 列表页的文章行就是它的行分隔线，取两行；个人页没有 #list，自动跳过 */
+    { sel: '#list .card',        side: 'bottom', kind: 'h', all: 2 },
     { sel: '.widget--box',       side: 'top',    kind: 'h' },
     { sel: '.widget--box',       side: 'bottom', kind: 'h' },
     { sel: '.site-footer',       side: 'top',    kind: 'h' },
@@ -228,19 +230,24 @@
     LINE_PLAN.forEach(function (spec) {
       if (spec.kind === 'h' && hs.length >= MAX_H) return;
       if (spec.kind === 'v' && vs.length >= MAX_V) return;
-      var el = document.querySelector(spec.sel);
-      if (!el) return;
-      var s = segOf(el, spec.side, W, H);
-      if (!s) return;
-      var pool = s.kind === 'h' ? hs : vs;
-      /* 同一条边可能被两个选择器量到（sidebar 左边 / 卡片左边），去重 */
-      var dup = pool.some(function (o) {
-        return Math.abs(o.y1 - s.y1) < 4 && Math.abs(o.x1 - s.x1) < 4 && Math.abs(o.x2 - s.x2) < 40;
-      });
-      if (dup) return;
-      s.el = el;
-      pool.push(s);
-      owners.push(el);
+      var found = document.querySelectorAll(spec.sel);
+      var take = Math.min(found.length, spec.all || 1), q;
+      for (q = 0; q < take; q++) {
+        var el = found[q];
+        if (spec.kind === 'h' && hs.length >= MAX_H) break;
+        if (spec.kind === 'v' && vs.length >= MAX_V) break;
+        var s = segOf(el, spec.side, W, H);
+        if (!s) continue;
+        var pool = s.kind === 'h' ? hs : vs;
+        /* 同一条边可能被两个选择器量到（sidebar 左边 / 卡片左边），去重 */
+        if (pool.some(function (o) {
+          return Math.abs(o.y1 - s.y1) < 4 && Math.abs(o.x1 - s.x1) < 4 &&
+                 Math.abs(o.x2 - s.x2) < 40;
+        })) continue;
+        s.el = el;
+        pool.push(s);
+        owners.push(el);
+      }
     });
     hs.sort(function (a, b) { return a.y1 - b.y1; });
     vs.sort(function (a, b) { return a.x1 - b.x1; });

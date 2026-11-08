@@ -217,8 +217,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
   transition:opacity .75s ease}
 .intro-canvas.is-fade,.intro-night.is-fade{opacity:0;pointer-events:none}
 
-.intro-disc{
-  position:absolute;border-radius:50%;overflow:hidden;
+.intro-disc{\n  position:absolute;border-radius:0;overflow:hidden;
   transform:scale(0);transform-origin:center;
   transition:transform .56s cubic-bezier(.25,.7,.25,1);
   background-color:#10233f;

@@ -12,14 +12,23 @@
   为什么这样最省事：页面和接口来自同一个 origin，
   浏览器认为它们【同源】，所以我们一行 CORS 配置都不用写。
 
-  视觉系统放在 /static/swiss.css：瑞士国际主义排版 —— 白 / 黑 / 一点红，
-  非对称网格、硬边框、无圆角无渐变。下面的 JS 只管数据与交互，与样式解耦。
+  视觉骨架放在 /static/swiss.css（语义色板 + 网格），
+  /static/starry.css 提供第二套主题「星月夜」、设置键与揭幕演出样式。
+  主题只覆盖 CSS 变量，不重渲染 DOM，所以下面的 JS 与样式依旧解耦。
 
   【内容与视图分离】姓名、头图文案、区标题、导航等展示数据统一来自
   /static/site-config.js，由 /static/site.js 按 data-bind 填进本页骨架；
   按钮、占位符、报错提示等功能性 UI 文案仍留在视图里（它们属于交互逻辑）。
 -->
+<!-- 首帧防白闪：必须在样式生效【之前】同步写好 data-theme。
+     外部 theme.js 要等下载执行，那时首帧已经画出来了，会先闪一下白底 Swiss。
+     这段是唯一必须内联的脚本，其余逻辑仍走外部文件。 -->
+<script>
+(function(){try{var t=localStorage.getItem('blog.theme');
+if(t==='starry'||t==='swiss')document.documentElement.dataset.theme=t;}catch(e){}})();
+</script>
 <link rel="stylesheet" href="/static/swiss.css">
+<link rel="stylesheet" href="/static/starry.css">
 <script src="/static/site-config.js"></script>
 </head>
 <body data-page="blog">
@@ -619,7 +628,7 @@ function openEditor(post){
       <label class="field">正文
         <textarea class="input" name="content" rows="10" required>${esc(post ? post.content : '')}</textarea>
       </label>
-      <label class="field row" style="color:var(--text)">
+      <label class="field row" style="color:var(--fg)">
         <input type="checkbox" name="published" ${post && post.published ? 'checked' : ''}>
         发布（不勾就是草稿）
       </label>
@@ -746,6 +755,10 @@ loadList();
 
 <!-- 展示数据填充：标题、品牌、导航、头图、页脚年份都在这里统一处理 -->
 <script src="/static/site.js"></script>
+
+<!-- 主题切换（持久状态）与揭幕演出（一次性事件）分层加载，互不依赖内部实现 -->
+<script src="/static/theme.js"></script>
+<script src="/static/intro.js"></script>
 
 </body>
 </html>

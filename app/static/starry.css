@@ -1,0 +1,197 @@
+/* ============================================================
+   starry.css — 星月夜主题 + 主题系统 UI + 揭幕演出层
+   ------------------------------------------------------------
+   本文件只做三件事，都不碰 HTML 骨架与展示内容：
+     1) [data-theme="starry"] 覆盖 swiss.css 的语义色板
+     2) 主题设置键 / 面板（两套主题共用，随变量自适应）
+     3) 揭幕演出的全屏 overlay（固定配色，刻意不随主题变量变化）
+
+   为什么演出层用固定配色：主题变量在动画【开始前】就已经写入，
+   overlay 若也跟着变量走，换幕时会自己变色，破坏"画布 → 夜空"的
+   一次场景切换。演出是自成一体的舞台，不属于任何一套主题。
+   ============================================================ */
+
+/* ── 1. 星月夜色板 ───────────────────────────────────────────── */
+:root[data-theme="starry"]{
+  --bg:#10233f;                              /* 夜空普鲁士蓝 */
+  --fg:#f2ede0;                              /* 暖白正文（非纯白，减少眩光） */
+  --accent:#f2c94c;                          /* 星月黄，接替信号红 */
+  --surface:#16305a;                         /* 面板 / 输入框 / 弹窗 */
+  --shade:#1b3a6b;                           /* hover 底 */
+  --rule:rgba(242,237,224,.24);
+  --rule-soft:rgba(242,237,224,.14);
+  --muted:#bccbe0;
+  --muted-2:#a7bbd5;
+  --on-fg:#10233f;                           /* 压在暖白底上的深色字 */
+  --on-accent:#10233f;                       /* 压在星月黄上的深色字 */
+  --hero-meta:#dbe5f2;
+  --footer-word:rgba(242,237,224,.07);
+  --selection:rgba(242,201,76,.28);
+  --focus-ring:rgba(242,201,76,.35);
+  --scrim:rgba(4,12,28,.74);
+  --disabled:#4a5f7e;
+  /* 深底上若仍用纯暖白 1px 实线做主边框会过亮，统一调柔 */
+  --border-strong:rgba(242,237,224,.45);
+}
+
+/* 夜空铺底：不贴《星月夜》原画。
+   版权、体积、深底压字都是问题；改用 CSS 生成同心旋涡 + 星点 + 光晕，
+   全部低透明度，正文对比度保持在 4.5:1 以上。 */
+:root[data-theme="starry"] body{
+  background-color:var(--bg);
+  background-attachment:fixed;
+  background-image:
+    radial-gradient(circle at 12% 22%, rgba(255,225,138,.85) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 27% 12%, rgba(255,225,138,.55) 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 30%, rgba(255,225,138,.7) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 68% 74%, rgba(255,225,138,.45) 0 1px, transparent 2px),
+    radial-gradient(circle at 82% 16%, rgba(242,201,76,.17) 0 4%, rgba(242,201,76,0) 12%),
+    radial-gradient(circle at 20% 68%, rgba(46,92,147,.22) 0 8%, rgba(46,92,147,0) 24%),
+    repeating-radial-gradient(circle at 82% 16%,
+      rgba(120,170,230,.032) 0 2px, transparent 2px 38px),
+    repeating-radial-gradient(circle at 20% 68%,
+      rgba(90,150,215,.028) 0 2px, transparent 2px 52px),
+    radial-gradient(ellipse at 50% 0%, #1b3a6b 0%, #10233f 58%, #0a1a30 100%);
+}
+
+/* 深底上的巨型页脚字与浅底块：降低存在感，避免抢正文 */
+:root[data-theme="starry"] .footer-word{color:var(--footer-word)}
+:root[data-theme="starry"] .card:hover,
+:root[data-theme="starry"] .link-card:hover,
+:root[data-theme="starry"] .widget-list li:hover{background:var(--shade)}
+:root[data-theme="starry"] .prose p,
+:root[data-theme="starry"] .content{color:var(--fg)}
+
+/* ── 2. 主题设置键 / 面板 ────────────────────────────────────── */
+.theme-switcher{position:relative;display:inline-flex;align-items:center;flex:0 0 auto}
+/* 个人介绍页报头原本是 brand 左 / nav 右（space-between）。
+   插入第三个元素后 nav 会跑到中间，用 auto 边距把它推回右侧。 */
+body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
+
+.theme-btn{
+  width:40px;height:40px;padding:0;border-radius:0;
+  display:grid;place-items:center;
+  border:1px solid var(--border-strong);
+  background:transparent;color:var(--fg);
+  transition:background .2s ease,color .2s ease,border-color .2s ease;
+}
+.theme-btn:hover,
+.theme-btn[aria-expanded="true"]{
+  background:var(--accent);color:var(--on-accent);border-color:var(--accent);
+}
+.theme-btn svg{width:19px;height:19px;fill:none;stroke:currentColor;
+  stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+
+.theme-panel{
+  position:absolute;right:0;top:calc(100% + 10px);
+  width:248px;max-width:calc(100vw - 40px);
+  padding:16px;z-index:60;
+  background:var(--surface);color:var(--fg);
+  border:1px solid var(--border-strong);border-top:3px solid var(--accent);
+}
+.theme-panel-title{
+  font-size:.72rem;font-weight:700;letter-spacing:.12em;
+  color:var(--muted);margin:0 0 10px;
+}
+.theme-option{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:11px 0;text-align:left;
+  border:0;border-bottom:1px solid var(--rule);border-radius:0;
+  background:transparent;color:var(--fg);
+  font:inherit;font-size:.84rem;font-weight:700;
+}
+.theme-option:hover{color:var(--accent)}
+.theme-option:last-of-type{border-bottom:0}
+.theme-option[aria-pressed="true"]{color:var(--accent)}
+.theme-swatch{
+  position:relative;flex:0 0 auto;
+  width:28px;height:18px;border:1px solid var(--border-strong);
+}
+.theme-swatch::before{content:"";position:absolute;left:0;top:0;bottom:0;width:58%}
+.theme-swatch--swiss{background:#ffffff}
+.theme-swatch--swiss::before{background:#e30613}
+.theme-swatch--starry{background:#10233f}
+.theme-swatch--starry::before{background:#f2c94c}
+.theme-current{margin-left:auto;font-size:.66rem;font-weight:700;letter-spacing:.06em}
+.theme-panel-foot{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin-top:12px;padding-top:12px;border-top:1px solid var(--rule);
+}
+.theme-hint{font-size:.66rem;color:var(--muted);line-height:1.5;margin:0}
+.theme-replay{
+  flex:0 0 auto;padding:7px 10px;border-radius:0;
+  border:1px solid var(--border-strong);background:transparent;
+  color:var(--fg);font:inherit;font-size:.68rem;font-weight:700;
+}
+.theme-replay:hover{border-color:var(--accent);color:var(--accent)}
+.theme-replay:disabled{opacity:.4;cursor:not-allowed}
+
+/* 演出进行中：设置键不可用，避免连点叠时间线 */
+.theme-btn:disabled{opacity:.45;cursor:not-allowed}
+
+@media(max-width:560px){
+  .theme-btn{width:40px;height:40px;min-height:40px}
+  .theme-panel{right:auto;left:auto;position:absolute;top:calc(100% + 8px)}
+  .theme-switcher{order:2}
+}
+
+/* ── 3. 揭幕演出层（固定配色，与主题解耦） ─────────────────── */
+.intro-overlay{
+  position:fixed;inset:0;z-index:9998;overflow:hidden;
+  background:#efe9dc;                 /* 亚麻画布 */
+  pointer-events:auto;
+}
+.intro-canvas{
+  position:absolute;inset:0;
+  background-color:#efe9dc;
+  background-image:
+    repeating-linear-gradient(0deg,rgba(120,100,70,.045) 0 1px,transparent 1px 4px),
+    repeating-linear-gradient(90deg,rgba(120,100,70,.035) 0 1px,transparent 1px 5px),
+    radial-gradient(ellipse at 50% 45%,rgba(255,255,255,.5),rgba(160,140,105,.12) 100%);
+}
+.intro-night{
+  position:absolute;inset:0;
+  clip-path:circle(0px at 50% 50%);
+  background-color:#10233f;
+  background-image:
+    radial-gradient(circle at 78% 16%,rgba(242,201,76,.28) 0 3%,rgba(242,201,76,0) 14%),
+    repeating-radial-gradient(circle at 78% 16%,
+      rgba(120,170,230,.11) 0 3px,transparent 3px 24px),
+    repeating-radial-gradient(circle at 24% 72%,
+      rgba(90,150,215,.09) 0 3px,transparent 3px 32px),
+    radial-gradient(ellipse at 50% 0%,#1b3a6b 0%,#10233f 60%,#081728 100%);
+}
+.intro-star{
+  position:absolute;width:4px;height:4px;border-radius:50%;
+  background:#ffe9a8;box-shadow:0 0 9px 3px rgba(255,225,138,.55);
+}
+.intro-swirl{position:absolute;inset:0;width:100%;height:100%;
+  opacity:.42;pointer-events:none;
+  animation:intro-swirl-turn 26s linear infinite}
+@keyframes intro-swirl-turn{to{transform:rotate(360deg)}}
+
+.intro-svg{
+  position:absolute;inset:0;width:100%;height:100%;
+  pointer-events:none;overflow:visible;
+}
+.intro-line{fill:none;stroke:#1b4f8f;stroke-width:4.5;
+  stroke-linecap:round;stroke-linejoin:round;opacity:.92}
+.intro-stroke{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.intro-vortex-ring{fill:none;stroke-linecap:round}
+.intro-brush{
+  position:absolute;width:76px;height:76px;
+  pointer-events:none;opacity:0;transform-origin:12px 64px;
+}
+.intro-skip{
+  position:absolute;right:18px;bottom:18px;z-index:5;
+  padding:9px 14px;border:1px solid rgba(16,35,63,.5);border-radius:0;
+  background:rgba(239,233,220,.85);color:#10233f;
+  font:700 .72rem/1.2 var(--text,sans-serif);letter-spacing:.1em;
+}
+.intro-skip:hover{background:#f2c94c}
+
+/* 页面被演出遮住时由 intro.js 给顶层元素写 inline opacity / inert。
+   这里只负责让淡入有过渡，不靠 class 切换，避免中途被打断留下残样式。 */
+@media(prefers-reduced-motion:reduce){
+  .intro-swirl{animation:none}
+}

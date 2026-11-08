@@ -37,6 +37,21 @@ window.SITE_CONFIG = {
     blog: "ARCHIVE"
   },
 
+  /* 主题设置面板的展示文案。
+     以后加第三套主题：这里加一项 + 写一份覆盖语义变量的 CSS 即可，
+     HTML 骨架和 theme.js / intro.js 都不用动。 */
+  themes: {
+    panelTitle: "界面风格",
+    hint: "选择会被记住，下次访问直接生效",
+    current: "使用中",
+    replay: "重播开场",
+    skip: "跳过演出",
+    items: [
+      { id: "swiss",  name: "瑞士编辑主义", note: "白 / 黑 / 信号红" },
+      { id: "starry", name: "星月夜",       note: "夜空 / 旋涡笔触" }
+    ]
+  },
+
   /* ── 个人介绍页 ───────────────────────────────────────────── */
   profile: {
     kicker: "№ 01 — 个人介绍",

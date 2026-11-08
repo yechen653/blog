@@ -11,12 +11,21 @@
   【内容与视图分离】本文件只是结构骨架，不含任何展示文案、姓名或链接：
     · 展示数据  → /static/site-config.js（唯一数据源）
     · 填充逻辑  → /static/site.js（按 data-bind / data-rich / data-repeat 挂载）
-    · 视觉风格  → /static/swiss.css
+    · 视觉风格  → /static/swiss.css（骨架与语义色板）
+                  /static/starry.css（星月夜主题 + 设置键 + 揭幕演出）
   想改内容改配置，想改风格改本文件 + CSS，两边互不影响。
   site-config.js 在 <head> 同步加载，site.js 在 </body> 前同步执行，
   所以首屏不会闪空白，也没有异步竞态。
 -->
+<!-- 首帧防白闪：必须在样式生效【之前】同步写好 data-theme。
+     外部 theme.js 要等下载执行，那时首帧已经画出来了，会先闪一下白底 Swiss。
+     这段是唯一必须内联的脚本，其余逻辑仍走外部文件。 -->
+<script>
+(function(){try{var t=localStorage.getItem('blog.theme');
+if(t==='starry'||t==='swiss')document.documentElement.dataset.theme=t;}catch(e){}})();
+</script>
 <link rel="stylesheet" href="/static/swiss.css">
+<link rel="stylesheet" href="/static/starry.css">
 <script src="/static/site-config.js"></script>
 </head>
 <body data-page="profile">
@@ -103,6 +112,10 @@
 </template>
 
 <script src="/static/site.js"></script>
+
+<!-- 主题切换（持久状态）与揭幕演出（一次性事件）分层加载，互不依赖内部实现 -->
+<script src="/static/theme.js"></script>
+<script src="/static/intro.js"></script>
 
 </body>
 </html>

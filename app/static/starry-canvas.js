@@ -13,9 +13,8 @@
      · 按 (墨色 × 粗细档) 分桶，所有 <path d> 只在 mount() 生成一次，
        演出期间 setAttribute('d') 次数为 0。
 
-   骨架流线（sky-bone）既是揭幕演出画的线，也是静态画里的暗底宽笔：
-   静态时 dashoffset=0（完整），演出开始时退回未画状态再生长。
-   因此演出与首屏静态是同一批 DOM 节点，不需要搬树、不需要交接重建。
+   演出用的"构造线"不在这里：它只在揭幕期间存在，由 intro.js 按页面
+   真实边线现算坐标，演完就拆掉。本文件只负责那张静态油画。
    ============================================================ */
 (function () {
   'use strict';
@@ -55,8 +54,8 @@
     village: { w: [.28,.36,.18,.08, 0,.05,.05, 0 ], t: [.30,.46,.20,.04], run: [2,4], over: .14, gap: .22 }
   };
 
-  var host = null, sky = null, staticSvg = null, spinSvg = null, bonesGroup = null;
-  var rings = [], bones = [], baseLayer = null;
+  var host = null, sky = null, staticSvg = null, spinSvg = null;
+  var rings = [], baseLayer = null;
   var COMP = null, disposers = [], resizeRaf = 0, resizeBound = false;
 
   function svg(tag, attrs) {
@@ -380,81 +379,6 @@
     return g;
   }
 
-  /* ── 骨架：两条 C 形涡臂 ───────────────────────────────────────
-     演出画的第一笔只保留两个主旋转点（A 主涡 / B 副涡）各一条弧，
-     其它版式线全部删掉 —— 上一版 12 条从 DOM 边缘起笔的折线，放大看
-     就是一串随手涂的勾、G 和长 U，读不出"在画什么"。
-
-     形状参数化成一个"开口的 C"：
-       · 半径 = 涡半径 × k，沿弧长缓慢外扩 / 内收，得到螺旋而不是同心圆
-       · 弧长 236° 左右，缺口朝向按涡心位置各自错开
-       · 半径叠两阶正弦扰动 + 逐点微抖，读起来像手画的弧，不是几何圆
-     这两条弧同时也是静态油画里的暗底宽笔，首屏就长在画上。 */
-  function vortexArc(v, cfg, rnd) {
-    var span = cfg.span * Math.PI / 180;
-    var gap = Math.PI * 2 - span;
-    var open = cfg.open * Math.PI / 180;
-    var dir = cfg.dir;
-    var a0 = open + dir * gap / 2;          /* 从缺口的这一侧起笔 */
-    var R = v.r * cfg.k;
-    var n = 72, pts = [], i;
-
-    for (i = 0; i <= n; i++) {
-      var t = i / n;
-      var a = a0 + dir * span * t;
-      /* 沿弧长缓慢外扩（螺旋而不是同心圆）+ 两阶正弦 + 逐点微抖：
-         手绘的呼吸感来自这三层，缺一层就退化成圆规画的圆。 */
-      var wob = .075 * Math.sin(t * 5.3 + cfg.ph) +
-                .032 * Math.sin(t * 11.7 + cfg.ph * 1.7) +
-                .012 * Math.sin(t * 24.3 + cfg.ph * 2.3);
-      var rad = R * (1 + cfg.drift * t) * (1 + wob);
-      pts.push({
-        x: v.x + Math.cos(a) * rad,
-        y: v.y + Math.sin(a) * rad * cfg.squash
-      });
-    }
-    return pts;
-  }
-
-  function buildBones(C, seed) {
-    var rnd = rng(seed), g = svg('g', { 'class': 'sky-bones' }), meta = [];
-
-    /* 主涡的 C 开口朝右，正好把副涡让进缺口里；副涡的 C 开口朝右上。
-       两条弧因此不会相交，也不会合成一个环。绕行方向跟着各自的涡旋转向，
-       画的时候就是"顺着涡在走"。 */
-    var plan = [
-      { v: C.A, ink: 1, w: 6.2, op: .42, delay: .00,
-        cfg: { k: .66, span: 252, open: 2, dir: -1, drift: .12, squash: .92, ph: .7 } },
-      { v: C.B, ink: 0, w: 5.0, op: .36, delay: .30,
-        cfg: { k: .86, span: 236, open: -34, dir: 1, drift: -.10, squash: .88, ph: 2.1 } }
-    ];
-
-    plan.forEach(function (item) {
-      var pts = vortexArc(item.v, item.cfg, rnd);
-      var dstr = pts.map(function (p, k2) {
-        return (k2 ? 'L' : 'M') + rr(p.x) + ' ' + rr(p.y);
-      }).join('');
-      var len = 0, q;
-      for (q = 1; q < pts.length; q++) {
-        len += Math.sqrt(Math.pow(pts[q].x - pts[q - 1].x, 2) +
-                         Math.pow(pts[q].y - pts[q - 1].y, 2));
-      }
-      var el = svg('path', {
-        'class': 'sky-bone', d: dstr, fill: 'none',
-        stroke: INKS[item.ink].c,
-        'stroke-width': (item.w + rnd() * .8).toFixed(1),
-        opacity: item.op.toFixed(2),
-        'stroke-linecap': 'round', 'stroke-linejoin': 'round'
-      });
-      el.setAttribute('stroke-dasharray', len.toFixed(0));
-      el.setAttribute('stroke-dashoffset', '0');
-      g.appendChild(el);
-
-      meta.push({ el: el, len: len, pts: pts, delay: item.delay });
-    });
-    return { group: g, meta: meta };
-  }
-
   /* ── 生命周期 ───────────────────────────────────────────────── */
   function mount() {
     var W = window.innerWidth, H = window.innerHeight;
@@ -501,9 +425,6 @@
     });
     rings = made;
 
-    var b = buildBones(COMP, 3347);
-    bonesGroup = b.group; bones = b.meta;
-    staticSvg.appendChild(bonesGroup);   /* 骨架在静止层最上，作暗底宽笔 */
     sky = spinSvg;                       /* 兼容 stats / prepare 的引用 */
   }
 
@@ -512,8 +433,8 @@
   function remove() {
     if (host && host.parentNode) host.parentNode.removeChild(host);
     host = null; sky = null; staticSvg = null; spinSvg = null;
-    bonesGroup = null; baseLayer = null;
-    rings = []; bones = []; COMP = null;
+    baseLayer = null;
+    rings = []; COMP = null;
     disposers.forEach(function (fn) { fn(); });
     disposers = [];
     resizeBound = false;
@@ -536,7 +457,7 @@
     ensure();
     return {
       W: COMP.W, H: COMP.H, comp: COMP,
-      bones: bones, rings: rings, base: baseLayer, sky: sky, host: host
+      rings: rings, base: baseLayer, sky: sky, host: host
     };
   }
   /* 兼容旧调用：新架构无需交接，线条本来就是常驻节点 */
@@ -563,7 +484,7 @@
       if (host) Array.prototype.forEach.call(host.querySelectorAll('path'), function (p) {
         chars += (p.getAttribute('d') || '').length; paths++;
       });
-      return { paths: paths, chars: chars, rings: rings.length, bones: bones.length };
+      return { paths: paths, chars: chars, rings: rings.length };
     }
   };
 })();

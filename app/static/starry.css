@@ -225,15 +225,12 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
    演出期间零逐帧重绘。 */
 .intro-flood{
   position:fixed;z-index:9991;pointer-events:auto;
-  border-radius:50%;transform-origin:center;
-  transform:scale(.012);opacity:0;
+  border-radius:50%;opacity:0;transform-origin:center;
+  transform:scale(.012);
   transition:transform calc(1.05s * var(--intro-pace,1)) cubic-bezier(.32,.72,.24,1),
              opacity calc(.55s * var(--intro-pace,1)) ease;
-  /* 只用单层渐变、不用 mask：mask + 多层径向渐变在圆形放大时每帧都要
-     重新光栅化，实测把幕④前段拖到 27fps（观感就是闪）。 */
   background-color:#10233f;
   background-image:radial-gradient(ellipse at 50% 8%,#1b3a6b 0%,#10233f 58%,#081728 100%);
-  will-change:transform;
 }
 .intro-flood.is-open{transform:scale(1.06);opacity:1}
 .intro-flood.is-fade{opacity:0;pointer-events:none}
@@ -285,17 +282,21 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
    will-change 把每个单元提成合成层 —— 否则 SVG 子元素的 transform
    动画会逐帧在主线程整层重绘（实测幕④前段掉到 27fps、观感就是闪烁）。 */
 .pk{opacity:0}
-.pk-fly{animation:paint-fly var(--fl-dur) cubic-bezier(.42,.08,.3,1) var(--fl-delay) both;
-  will-change:transform,opacity}
-.pk-spin{animation:paint-spin var(--sp-dur) cubic-bezier(.4,.06,.3,1) var(--sp-delay) both;
-  will-change:transform,opacity}
+/* 飞行单元的变换原点必须是【自身中心】（fill-box）：以月心为原点时，
+   离月最远的左侧格子要在大原点 + 小数缩放上做合成层光栅，那正是
+   "最左边元素闪烁"的来源。改成自身中心后光栅尺寸稳定，只做平移 +
+   轻微自转 + 长大。 */
+.pk-fly{transform-box:fill-box;transform-origin:50% 50%;
+  animation:paint-fly var(--fl-dur) cubic-bezier(.42,.08,.3,1) var(--fl-delay) both;}
+.pk-spin{transform-box:view-box;
+  animation:paint-spin var(--sp-dur) cubic-bezier(.4,.06,.3,1) var(--sp-delay) both;}
 .pk-a{animation:pk-in var(--in-dur) ease var(--in-delay) both}
 .star-part{opacity:0;animation:star-ignite .32s ease var(--ig-delay,99999ms) both;
   will-change:opacity}
 @keyframes paint-fly{
-  0%{transform:rotate(var(--a0)) translate(var(--vx0),var(--vy0)) scale(.22);opacity:0}
-  20%{opacity:var(--op,1)}
-  100%{transform:rotate(0deg) translate(0,0) scale(1);opacity:var(--op,1)}
+  0%{transform:translate(var(--vx0),var(--vy0)) scale(.55);opacity:0}
+  22%{opacity:var(--op,1)}
+  100%{transform:translate(0,0) scale(1);opacity:var(--op,1)}
 }
 @keyframes paint-spin{
   0%{transform:rotate(var(--a0));opacity:0}

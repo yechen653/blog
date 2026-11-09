@@ -35,7 +35,7 @@
   /* 本次会话是否已经看过演出的标记。键里带上【演出版本】——演出重做后
      老访客也能再自动看一次新版本；再带上部署前缀（/、/v2/、/v3/ 各自
      独立），否则同一个域名下看过主页的演出，预览环境里就再也不播了。 */
-  var SEEN = 'blog.intro.seen:paint4:';
+  var SEEN = 'blog.intro.seen:paint5:';
   try {
     var here = document.currentScript && document.currentScript.src;
     if (here) SEEN += here.replace(/static\/intro\.js.*$/, '');
@@ -67,7 +67,9 @@
   /* 第②幕排期（未乘 pace）：INK = 一条线画完的时长，
      CHAIN = 下一条的起笔点（.8 = 上一条画到 80% 才起下一条） */
   var INK = 300, CHAIN = .8, TAIL = 160;
-  /* 夜色圆盘的布局底图半边长（px）：实际半径靠 transform 放大出来 */
+  /* 夜色圆盘的布局底图半边长（px）：合成层按布局尺寸光栅，
+     2900px 的层每帧重采样就是掉帧大头；200px 的层放大到约 14 倍
+     只是软渐变的重采样，便宜且看不出差别。 */
   var FLOOD_BASE = 200;
 
   /* 第④幕排期（未乘 pace）。rotateStart（点火时刻）= quiet+sketch+60，
@@ -75,9 +77,9 @@
   var ENG = {
     diskSpread: 160, diskDur: 1100,                       /* 月盘象限旋入 */
     haloStart: 820,  haloSpread: 300, haloDur: 1200,      /* 月晕带旋入 */
-    vortexStart: 900, vortexSpread: 260,                  /* 涡环自纺 */
+    vortexStart: 420, vortexSpread: 260,                  /* 涡环自纺 */
     ringGap: 420, sectorSpread: 110, vortexDur: 1200,
-    chunkStart: 1100, pieceStagger: 34, pieceDur: 1150,   /* A 路构造线段 */
+    chunkStart: 520, pieceStagger: 34, pieceDur: 1150,    /* A 路构造线段 */
     waveStart: 520,  waveSpan: 3000, waveSpanM: 2400,     /* B 路生长波 */
     starStart: 1520, starStag: 130, starDur: 1600,        /* 星（出发按波前距离对齐）*/
     moonSeedFade: 2500
@@ -126,8 +128,8 @@
 
     var flood = document.createElement('div');
     flood.className = 'intro-flood';
-    /* 布局尺寸只给 400px：合成层按布局尺寸光栅，2900px 的层每帧
-       重采样就是幕④掉帧的大头；渐变是软的，放大 6~7 倍看不出差别。 */
+    /* 布局尺寸给小、半径靠 transform 放大：宽高动画每帧都要重排重绘
+       巨大元素（实测掉到 26fps），缩放走合成器更便宜。 */
     flood.style.width = flood.style.height = (FLOOD_BASE * 2) + 'px';
     flood.style.left = (M.x - FLOOD_BASE).toFixed(0) + 'px';
     flood.style.top = (M.y - FLOOD_BASE).toFixed(0) + 'px';
@@ -478,13 +480,11 @@
     cellGroups.forEach(function (cg) {
       cg.kept.forEach(function (b, u) {
         var el = mkUnit(b.d, 'pk pk-fly');
-        el.setAttribute('style', 'transform-box:view-box;transform-origin:' +
-          M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
         var a = Math.atan2(cg.cy - M.y, cg.cx - M.x);
         var dist = cg.dist;
-        var r0 = M.r * 1.03, r1 = Math.max(dist * .97, 40);
+        var r0 = M.r * 1.03;
         var hsh = hashN(cg.kx * 131 + cg.ky * 77 + u * 17 + 3);
-        el.style.setProperty('--a0', (-(26 + hsh * 40)).toFixed(0) + 'deg');
+        el.style.setProperty('--a0', (-(8 + hsh * 22)).toFixed(0) + 'deg');
         el.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - cg.cx).toFixed(1) + 'px');
         el.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - cg.cy).toFixed(1) + 'px');
         var dd2 = clamp(900 + dist * .5, 900, 1600);
@@ -583,6 +583,14 @@
         if (rb.done) continue;
         var u = (t - rb.flStart) / ENG.pieceDur;
         if (u <= 0) continue;
+        if (!rb.undashed) {
+          /* 起飞时清掉起笔用的虚线：d 每帧变长变短，而 dasharray 还是
+             最初那一段的长度 —— 路径一拉长就会露出虚线缺口，长度一跳
+             缺口就闪，正是"线条闪烁"的根源。 */
+          rb.el.style.strokeDasharray = 'none';
+          rb.el.style.strokeDashoffset = '0';
+          rb.undashed = true;
+        }
         var p = rb.pivot;
         function ribbonEnd(pr0, prW, pt0, ptW, uu) {
           var e = uu * uu * (3 - 2 * uu);
@@ -601,9 +609,18 @@
         var chx = B[0] - A[0], chy = B[1] - A[1], cl = Math.hypot(chx, chy) || 1;
         var bow = rb.bowLen * e1;
         var Cx = mx - chy / cl * bow, Cy = my + chx / cl * bow;
-        rb.el.setAttribute('d', 'M' + A[0].toFixed(1) + ' ' + A[1].toFixed(1) +
-          'Q' + Cx.toFixed(1) + ' ' + Cy.toFixed(1) + ' ' +
-          B[0].toFixed(1) + ' ' + B[1].toFixed(1));
+        /* 每两帧刷一次 + 位移不足 0.35px 不写：柔和飘带不需要 60fps 的
+           d 重算，减半的主线程重绘能明显压住左侧排线的闪烁 */
+        rb.frame = (rb.frame || 0) + 1;
+        if ((rb.frame & 1) === 0) {
+          var lx = rb.px == null ? 1e9 : Math.abs(A[0] - rb.px) + Math.abs(A[1] - rb.py);
+          if (lx > .35) {
+            rb.px = A[0]; rb.py = A[1];
+            rb.el.setAttribute('d', 'M' + A[0].toFixed(1) + ' ' + A[1].toFixed(1) +
+              'Q' + Cx.toFixed(1) + ' ' + Cy.toFixed(1) + ' ' +
+              B[0].toFixed(1) + ' ' + B[1].toFixed(1));
+          }
+        }
         if (u >= 1) {
           rb.el.setAttribute('d', 'M' + rb.W1[0].toFixed(1) + ' ' + rb.W1[1].toFixed(1) +
             'Q' + rb.Wc[0].toFixed(1) + ' ' + rb.Wc[1].toFixed(1) + ' ' +
@@ -672,14 +689,12 @@
       if (!s) return;
       counts.stars++;
       var g = SC.svg('g', { 'class': 'pk pk-fly' });
-      g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
-        M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
       g.style.setProperty('--op', '1');
       var a = Math.atan2(s.y - M.y, s.x - M.x);
       var dist = Math.hypot(s.x - M.x, s.y - M.y);
-      var r0 = M.r * 1.05, r1 = Math.max(dist * .95, 40);
+      var r0 = M.r * 1.05;
       var hsh = hashN(si * 7919 + 13);
-      g.style.setProperty('--a0', (-(34 + hsh * 46)).toFixed(0) + 'deg');
+      g.style.setProperty('--a0', (-(10 + hsh * 24)).toFixed(0) + 'deg');
       g.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - s.x).toFixed(1) + 'px');
       g.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - s.y).toFixed(1) + 'px');
       /* 出发时刻对齐波前：波前到达这颗星的距离时，它才从月沿起飞 */
@@ -804,11 +819,11 @@
     }
 
     /* 夜色扩张与生长波严格同半径：delay=波出发时刻，dur=波时长，
-       终态半径 = 最远格子的距离（略加余量） */
+       终态直径 = 最远格子距离的两倍（略加余量） */
     var floodCfg = {
       delayMs: Math.round((rotateStart - (TIMING.quiet + sketchMs) + ENG.waveStart) * pace),
       durMs: Math.round(WAVE * pace),
-      scaleEnd: clamp(maxDist * 1.06 / FLOOD_BASE, .05, 14).toFixed(3)
+      scaleEnd: clamp(maxDist * 1.06 / FLOOD_BASE, .02, 14).toFixed(3)
     };
     return { el: svgL, verify: verify, counts: counts, tick: tickRibbons,
              flood: floodCfg };

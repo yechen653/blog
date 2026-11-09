@@ -32,10 +32,10 @@
   var T = (window.SITE_CONFIG || {}).themes || {};
   var root = document.documentElement;
 
-  /* 本次会话是否已经看过演出的标记。
-     键里带上部署前缀（/、/v2/、/v3/ 各自独立），否则同一个域名下
-     看过主页的演出，预览环境里的新版就再也不播了。 */
-  var SEEN = 'blog.intro.seen:';
+  /* 本次会话是否已经看过演出的标记。键里带上【演出版本】——演出重做后
+     老访客也能再自动看一次新版本；再带上部署前缀（/、/v2/、/v3/ 各自
+     独立），否则同一个域名下看过主页的演出，预览环境里就再也不播了。 */
+  var SEEN = 'blog.intro.seen:paint1:';
   try {
     var here = document.currentScript && document.currentScript.src;
     if (here) SEEN += here.replace(/static\/intro\.js.*$/, '');

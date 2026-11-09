@@ -35,7 +35,7 @@
   /* 本次会话是否已经看过演出的标记。键里带上【演出版本】——演出重做后
      老访客也能再自动看一次新版本；再带上部署前缀（/、/v2/、/v3/ 各自
      独立），否则同一个域名下看过主页的演出，预览环境里就再也不播了。 */
-  var SEEN = 'blog.intro.seen:paint3:';
+  var SEEN = 'blog.intro.seen:paint4:';
   try {
     var here = document.currentScript && document.currentScript.src;
     if (here) SEEN += here.replace(/static\/intro\.js.*$/, '');
@@ -67,15 +67,17 @@
   /* 第②幕排期（未乘 pace）：INK = 一条线画完的时长，
      CHAIN = 下一条的起笔点（.8 = 上一条画到 80% 才起下一条） */
   var INK = 300, CHAIN = .8, TAIL = 160;
+  /* 夜色圆盘的布局底图半边长（px）：实际半径靠 transform 放大出来 */
+  var FLOOD_BASE = 200;
 
   /* 第④幕排期（未乘 pace）。rotateStart（点火时刻）= quiet+sketch+60，
      所有引擎轨道的 delay 都从它起算。 */
   var ENG = {
     diskSpread: 160, diskDur: 1100,                       /* 月盘象限旋入 */
     haloStart: 820,  haloSpread: 300, haloDur: 1200,      /* 月晕带旋入 */
-    vortexStart: 420, vortexSpread: 260,                  /* 涡环自纺 */
+    vortexStart: 900, vortexSpread: 260,                  /* 涡环自纺 */
     ringGap: 420, sectorSpread: 110, vortexDur: 1200,
-    chunkStart: 420, pieceStagger: 34, pieceDur: 1150,    /* A 路构造线段 */
+    chunkStart: 1100, pieceStagger: 34, pieceDur: 1150,   /* A 路构造线段 */
     waveStart: 520,  waveSpan: 3000, waveSpanM: 2400,     /* B 路生长波 */
     starStart: 1520, starStag: 130, starDur: 1600,        /* 星（出发按波前距离对齐）*/
     moonSeedFade: 2500
@@ -124,9 +126,27 @@
 
     var flood = document.createElement('div');
     flood.className = 'intro-flood';
-    flood.style.width = flood.style.height = (maxR * 2).toFixed(0) + 'px';
-    flood.style.left = (M.x - maxR).toFixed(0) + 'px';
-    flood.style.top = (M.y - maxR).toFixed(0) + 'px';
+    /* 布局尺寸只给 400px：合成层按布局尺寸光栅，2900px 的层每帧
+       重采样就是幕④掉帧的大头；渐变是软的，放大 6~7 倍看不出差别。 */
+    flood.style.width = flood.style.height = (FLOOD_BASE * 2) + 'px';
+    flood.style.left = (M.x - FLOOD_BASE).toFixed(0) + 'px';
+    flood.style.top = (M.y - FLOOD_BASE).toFixed(0) + 'px';
+    /* 夜色的一次性烘焙：渐变画进 canvas 转位图。用 CSS 渐变的话，
+       圆盘每放大一帧就要重新光栅一次渐变（实测把幕④拖到 27fps），
+       位图缩放只是重采样，便宜一个量级。 */
+    try {
+      var cv = document.createElement('canvas');
+      cv.width = cv.height = 320;
+      var g2 = cv.getContext('2d');
+      var rg = g2.createRadialGradient(160, 40, 10, 160, 40, 300);
+      rg.addColorStop(0, '#1b3a6b');
+      rg.addColorStop(.58, '#10233f');
+      rg.addColorStop(1, '#081728');
+      g2.fillStyle = rg;
+      g2.fillRect(0, 0, 320, 320);
+      flood.style.backgroundImage = 'url(' + cv.toDataURL('image/png') + ')';
+      flood.style.backgroundSize = '100% 100%';
+    } catch (e) { /* 取不到 canvas 就让底色兜底 */ }
 
     var ui = document.createElement('div');
     ui.className = 'intro-ui';
@@ -162,7 +182,7 @@
     var found = [];
     REVEAL_SELECTORS.forEach(function (sel) {
       Array.prototype.forEach.call(document.querySelectorAll(sel), function (el) {
-        if (found.length >= 48) return;
+        if (found.length >= 34) return;
         var r = el.getBoundingClientRect();
         if (r.width < 20 || r.height < 8) return;
         if (r.bottom < 0 || r.top > geo.H * 1.2) return;
@@ -175,9 +195,9 @@
       var a = (i * 2.399) % (Math.PI * 2);
       return {
         el: el,
-        tx: (Math.cos(a) * (10 + i % 5 * 5)).toFixed(1) + 'px',
-        ty: (Math.sin(a) * (10 + i % 5 * 5)).toFixed(1) + 'px',
-        delayMs: Math.round(i / Math.max(1, found.length) * 340)
+        tx: (Math.cos(a) * (8 + i % 4 * 4)).toFixed(1) + 'px',
+        ty: (Math.sin(a) * (8 + i % 4 * 4)).toFixed(1) + 'px',
+        delayMs: Math.round(i / Math.max(1, found.length) * 300)
       };
     });
   }
@@ -282,8 +302,8 @@
   function buildPaint() {
     var C = geo.comp, M = C.M, dabs = geo.dabs || [];
     var INKc = SC.inks, TI = SC.tiers, mob = SC.mobile;
-    var COLS = mob ? 5 : 9, ROWS = mob ? 4 : 7, KEEP = 3;
-    var WAVE = mob ? 2400 : 3000;
+    var COLS = mob ? 5 : 9, ROWS = mob ? 4 : 7, KEEP = 2;
+    var WAVE = mob ? 2700 : 3400;
     var registry = [];
     var counts = { cellUnits: 0, cells: 0, moon: 0, rings: 0, stars: 0, pieces: 0 };
 
@@ -464,11 +484,12 @@
         var dist = cg.dist;
         var r0 = M.r * 1.03, r1 = Math.max(dist * .97, 40);
         var hsh = hashN(cg.kx * 131 + cg.ky * 77 + u * 17 + 3);
-        el.style.setProperty('--a0', (-(60 + hsh * 70)).toFixed(0) + 'deg');
+        el.style.setProperty('--a0', (-(26 + hsh * 40)).toFixed(0) + 'deg');
         el.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - cg.cx).toFixed(1) + 'px');
         el.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - cg.cy).toFixed(1) + 'px');
         var dd2 = clamp(900 + dist * .5, 900, 1600);
-        var dl = ENG.waveStart + (dist / maxDist) * WAVE + hsh * 140 + u * 60;
+        /* 波峰摊开：每个格子的几个单位再各自错开 ~400ms，避免同一瞬间几十个单元一起起飞 */
+        var dl = ENG.waveStart + (dist / maxDist) * WAVE + hsh * 260 + u * 110;
         el.style.setProperty('--fl-dur', (dd2 * pace).toFixed(0) + 'ms');
         el.style.setProperty('--fl-delay', ((rotateStart + dl) * pace).toFixed(0) + 'ms');
         push(el); reg(el, 'cell');
@@ -658,7 +679,7 @@
       var dist = Math.hypot(s.x - M.x, s.y - M.y);
       var r0 = M.r * 1.05, r1 = Math.max(dist * .95, 40);
       var hsh = hashN(si * 7919 + 13);
-      g.style.setProperty('--a0', (-(70 + hsh * 90)).toFixed(0) + 'deg');
+      g.style.setProperty('--a0', (-(34 + hsh * 46)).toFixed(0) + 'deg');
       g.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - s.x).toFixed(1) + 'px');
       g.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - s.y).toFixed(1) + 'px');
       /* 出发时刻对齐波前：波前到达这颗星的距离时，它才从月沿起飞 */
@@ -787,7 +808,7 @@
     var floodCfg = {
       delayMs: Math.round((rotateStart - (TIMING.quiet + sketchMs) + ENG.waveStart) * pace),
       durMs: Math.round(WAVE * pace),
-      scaleEnd: clamp(maxDist / maxR * 1.04, .2, 1.06).toFixed(3)
+      scaleEnd: clamp(maxDist * 1.06 / FLOOD_BASE, .05, 14).toFixed(3)
     };
     return { el: svgL, verify: verify, counts: counts, tick: tickRibbons,
              flood: floodCfg };
@@ -813,13 +834,15 @@
     } else if (n === 4) {
       /* ④ 引擎流水线（排期全在构建期写好，这里只记账） */
     } else if (n === 5) {
-      /* ⑤ 收束：画板退场，夜色 + 长成的画留在台上 */
+      /* ⑤ 收束：画板退场；真画此刻已经在粒子层下铺好 —— 粒子已与真画
+         逐像素重合，铺上去看不见，但把它的一次性光栅化提前到这一幕，
+         第⑥幕就不会在交接瞬间掉帧（实测尾巴上有一拍 31fps）。 */
       if (stage.paper) stage.paper.classList.add('is-fade');
-    } else if (n === 6) {
-      /* ⑥ 主页显现：粒子层与真画同位交叉淡替（内容逐像素同源），
-         页面元素带 Z 轴纵深错峰落位 */
-      geo.host.style.transition = 'opacity .45s ease';
+      geo.host.style.transition = 'none';
       geo.host.style.opacity = '1';
+    } else if (n === 6) {
+      /* ⑥ 主页显现：粒子层淡出（底下就是逐像素同源的真画），
+         页面元素带 Z 轴纵深错峰落位 */
       if (paint) paint.el.classList.add('is-swap');
       pageEls.forEach(function (el) {
         el.style.transition = 'opacity ' + dur(.5) + ' ease';

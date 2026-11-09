@@ -229,12 +229,10 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
   transform:scale(.012);opacity:0;
   transition:transform calc(1.05s * var(--intro-pace,1)) cubic-bezier(.32,.72,.24,1),
              opacity calc(.55s * var(--intro-pace,1)) ease;
+  /* 只用单层渐变、不用 mask：mask + 多层径向渐变在圆形放大时每帧都要
+     重新光栅化，实测把幕④前段拖到 27fps（观感就是闪）。 */
   background-color:#10233f;
-  background-image:
-    radial-gradient(circle at 50% 22%,rgba(255,179,71,.20) 0 12%,rgba(242,201,76,0) 42%),
-    radial-gradient(ellipse at 50% 8%,#1b3a6b 0%,#10233f 58%,#081728 100%);
-  -webkit-mask-image:radial-gradient(circle,#000 86%,rgba(0,0,0,.6) 96%,transparent 100%);
-  mask-image:radial-gradient(circle,#000 86%,rgba(0,0,0,.6) 96%,transparent 100%);
+  background-image:radial-gradient(ellipse at 50% 8%,#1b3a6b 0%,#10233f 58%,#081728 100%);
   will-change:transform;
 }
 .intro-flood.is-open{transform:scale(1.06);opacity:1}
@@ -283,12 +281,17 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 @keyframes seed-spin{to{transform:rotate(360deg)}}
 @keyframes seed-fade{to{opacity:0}}
 
-/* 颜料单元：末帧都是 identity，落定即真画 */
+/* 颜料单元：末帧都是 identity，落定即真画。
+   will-change 把每个单元提成合成层 —— 否则 SVG 子元素的 transform
+   动画会逐帧在主线程整层重绘（实测幕④前段掉到 27fps、观感就是闪烁）。 */
 .pk{opacity:0}
-.pk-fly{animation:paint-fly var(--fl-dur) cubic-bezier(.42,.08,.3,1) var(--fl-delay) both}
-.pk-spin{animation:paint-spin var(--sp-dur) cubic-bezier(.4,.06,.3,1) var(--sp-delay) both}
+.pk-fly{animation:paint-fly var(--fl-dur) cubic-bezier(.42,.08,.3,1) var(--fl-delay) both;
+  will-change:transform,opacity}
+.pk-spin{animation:paint-spin var(--sp-dur) cubic-bezier(.4,.06,.3,1) var(--sp-delay) both;
+  will-change:transform,opacity}
 .pk-a{animation:pk-in var(--in-dur) ease var(--in-delay) both}
-.star-part{opacity:0;animation:star-ignite .32s ease var(--ig-delay,99999ms) both}
+.star-part{opacity:0;animation:star-ignite .32s ease var(--ig-delay,99999ms) both;
+  will-change:opacity}
 @keyframes paint-fly{
   0%{transform:rotate(var(--a0)) translate(var(--vx0),var(--vy0)) scale(.22);opacity:0}
   20%{opacity:var(--op,1)}

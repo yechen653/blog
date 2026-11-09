@@ -35,7 +35,7 @@
   /* 本次会话是否已经看过演出的标记。键里带上【演出版本】——演出重做后
      老访客也能再自动看一次新版本；再带上部署前缀（/、/v2/、/v3/ 各自
      独立），否则同一个域名下看过主页的演出，预览环境里就再也不播了。 */
-  var SEEN = 'blog.intro.seen:paint1:';
+  var SEEN = 'blog.intro.seen:paint2:';
   try {
     var here = document.currentScript && document.currentScript.src;
     if (here) SEEN += here.replace(/static\/intro\.js.*$/, '');
@@ -71,13 +71,13 @@
   /* 第④幕排期（未乘 pace）。rotateStart（点火时刻）= quiet+sketch+60，
      所有引擎轨道的 delay 都从它起算。 */
   var ENG = {
-    diskSpread: 90,  diskDur: 850,                        /* 月盘象限旋入 */
-    haloStart: 820,  haloSpread: 240, haloDur: 900,       /* 月晕带旋入 */
-    vortexStart: 420, vortexSpread: 130,                  /* 涡环自纺 */
-    ringGap: 320, sectorSpread: 80, vortexDur: 800,
-    chunkStart: 420, chunkStag: 70, chunkDur: 1250,       /* A 路构造线 */
-    waveStart: 520,  waveSpan: 2400, waveSpanM: 1900,     /* B 路生长波 */
-    starStart: 1520, starStag: 130, starDur: 1050,        /* 星 */
+    diskSpread: 160, diskDur: 1100,                       /* 月盘象限旋入 */
+    haloStart: 820,  haloSpread: 300, haloDur: 1200,      /* 月晕带旋入 */
+    vortexStart: 420, vortexSpread: 260,                  /* 涡环自纺 */
+    ringGap: 420, sectorSpread: 110, vortexDur: 1200,
+    chunkStart: 420, pieceStagger: 34, pieceDur: 1150,    /* A 路构造线段 */
+    waveStart: 520,  waveSpan: 3000, waveSpanM: 2400,     /* B 路生长波 */
+    starStart: 1520, starStag: 130, starDur: 1150,        /* 星 */
     moonSeedFade: 2500
   };
 
@@ -282,10 +282,10 @@
   function buildPaint() {
     var C = geo.comp, M = C.M, dabs = geo.dabs || [];
     var INKc = SC.inks, TI = SC.tiers, mob = SC.mobile;
-    var COLS = mob ? 4 : 7, ROWS = mob ? 3 : 5, KEEP = mob ? 3 : 4;
-    var WAVE = mob ? ENG.waveSpanM : ENG.waveSpan;
+    var COLS = mob ? 5 : 9, ROWS = mob ? 4 : 7, KEEP = 3;
+    var WAVE = mob ? 2400 : 3000;
     var registry = [];
-    var counts = { cellUnits: 0, cells: 0, moon: 0, rings: 0, stars: 0, chunks: 0 };
+    var counts = { cellUnits: 0, cells: 0, moon: 0, rings: 0, stars: 0, pieces: 0 };
 
     /* 与旧 guide 相同的"钉盒"套路：量出的像素定 viewBox，1 单位 = 1px。
        手机上地址栏收放会让视口高度变化，盒子一变而 viewBox 不变，
@@ -300,8 +300,8 @@
     svgL.style.bottom = 'auto';
     svgL.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
 
-    /* 一个单元 = 同 (墨×档) 的一束笔。每个格子/扇区只保 KEEP 个桶，
-       其余并进宽度最接近的桶 —— 否则单元数爆炸，合成层装不下。 */
+    /* 同 (墨×档) 的一束笔并成一个单元；每格/每扇区只保 KEEP 个桶，
+       其余并进宽度最近的桶 —— 控制单元总数（桌面 ~420 / 移动 ~210）。 */
     function groupDabs(list, keyFn, cap) {
       var map = {};
       list.forEach(function (d) {
@@ -341,8 +341,7 @@
       return p;
     }
 
-    /* 验收登记：期望中心 = 构建期 bbox 中心（单元末帧都是 identity），
-       期望透明度 = 墨色的不透明度。verify() 在第⑤幕后逐一对账。 */
+    /* 验收登记：期望中心 = 构建期 bbox 中心（单元末帧都是 identity） */
     function reg(el, kind, ex, ey) {
       var x = ex, y = ey, op = null;
       try {
@@ -354,11 +353,80 @@
       registry.push({ el: el, kind: kind, x: x, y: y, op: op });
     }
 
-    /* ── 1) 环境颜料（天空/云带/远山/村庄）按格子分组 ─────────── */
-    var ambient = dabs.filter(function (d) {
-      return d.g !== 'moon' && d.g !== 'star' && d.g.indexOf('ring') !== 0;
+    /* ── 1) 清单分区 ───────────────────────────────────────────── */
+    var moonD = [], ringD = [], starD = [], ambient = [];
+    dabs.forEach(function (d) {
+      if (d.g === 'moon') { moonD.push(d); return; }
+      if (d.g === 'star') { starD.push(d); return; }
+      if (d.g.indexOf('ring') === 0) { ringD.push(d); return; }
+      ambient.push(d);
     });
-    var cellGroups = groupDabs(ambient, function (d) {
+
+    /* ── 2) 第②幕的画：横 → 竖 → 两个种子圆 → 橙色月圆收笔 ──────
+       每条构造线出生就拆成小段（pieces），每段绑定一支真实的笔 ——
+       第④幕逐段飞过去、d 形变成那一笔的曲线，落定即真笔。 */
+    var got = collectLines(W, H);
+    var items = [], pieces = [], j = 0;
+    got.forEach(function (s) {
+      var len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
+      var np = clamp(Math.round(len / 60), 3, 8), k;
+      var jit = JIT[j % JIT.length]; j++;
+      var ox = s.kind === 'v' ? Math.round(jit[0] * .5) : jit[0];
+      var oy = s.kind === 'v' ? jit[1] : Math.round(jit[1] * .6);
+      for (k = 0; k < np; k++) {
+        var t0 = k / np, t1 = (k + 1) / np;
+        pieces.push({
+          p0: { x: s.x1 + (s.x2 - s.x1) * t0 + ox, y: s.y1 + (s.y2 - s.y1) * t0 + oy },
+          p1: { x: s.x1 + (s.x2 - s.x1) * t1 + ox, y: s.y1 + (s.y2 - s.y1) * t1 + oy },
+          kind: s.kind, li: items.length, np: np, pi0: k
+        });
+      }
+      items.push(1);
+    });
+    [C.A, C.B].forEach(function (v) {
+      items.push({ seedV: v });
+    });
+    items.push({ moonSeed: true });
+
+    var nLines = got.length;
+    var sketchMs = Math.round((nLines + 2) * INK * CHAIN + INK + TAIL);
+    var moonStart = (nLines + 1) * INK * CHAIN;
+    TIMING.sketch = sketchMs;
+    var rotateStart = TIMING.quiet + sketchMs + 60;   /* 点火时刻（单位 ms） */
+
+    /* 每段绑定一支真实的笔（贪心就近，同一支笔不重复认领）；
+       被认领的笔从格子清单里剔除 —— 它的归宿就是这段线自己。 */
+    var dabUsed = [];
+    pieces.forEach(function (pc) {
+      var cxm = (pc.p0.x + pc.p1.x) / 2, cym = (pc.p0.y + pc.p1.y) / 2;
+      var best = null, bd = 1e9;
+      for (var i = 0; i < ambient.length; i++) {
+        if (dabUsed[i]) continue;
+        var d = ambient[i];
+        var dd = (d.x - cxm) * (d.x - cxm) + (d.y - cym) * (d.y - cym);
+        if (dd < bd) { bd = dd; best = i; }
+      }
+      dabUsed[best] = true;
+      pc.dab = ambient[best];
+      pc.dabIdx = best;
+    });
+    var assignedSet = {};
+    pieces.forEach(function (pc) { assignedSet[pc.dabIdx] = true; });
+    var ambientRest = ambient.filter(function (d, i) { return !assignedSet[i]; });
+
+    /* ── 3) 第②幕排期 ─────────────────────────────────────────── */
+    function pivotFor(x, y) {
+      var da = (x - C.A.x) * (x - C.A.x) + (y - C.A.y) * (y - C.A.y);
+      var db = (x - C.B.x) * (x - C.B.x) + (y - C.B.y) * (y - C.B.y);
+      return da <= db ? C.A : C.B;
+    }
+
+    /* ── 4) DOM 组装。追加顺序 = 层级（最终界面：天空颜料在月下）─
+       格子/线段 → 种子圆 → 涡环 → 星 → 月种子 → 月晕/月盘（最上） */
+    function push(el) { svgL.appendChild(el); return el; }
+
+    /* 4a) B 路：出生点压在月沿，先显形、再全程可见地螺旋飞向落点 */
+    var cellGroups = groupDabs(ambientRest, function (d) {
       var kx = clamp(Math.floor(d.x / W * COLS), 0, COLS - 1);
       var ky = clamp(Math.floor(d.y / H * ROWS), 0, ROWS - 1);
       return kx + '_' + ky;
@@ -374,180 +442,214 @@
       cg.dist = Math.hypot(cg.cx - M.x, cg.cy - M.y);
       if (cg.dist > maxDist) maxDist = cg.dist;
     });
-
-    /* ── 2) 第②幕的画：横 → 竖 → 两个种子圆 → 橙色月圆收笔 ───── */
-    var got = collectLines(W, H);
-    var items = [], j = 0;
-    got.forEach(function (s) {
-      var len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
-      var n = chunkCount(len), k;
-      var jit = JIT[j % JIT.length];
-      var ox = s.kind === 'v' ? Math.round(jit[0] * .5) : jit[0];
-      var oy = s.kind === 'v' ? jit[1] : Math.round(jit[1] * .6);
-      var chunks = [];
-      for (k = 0; k < n; k++) {
-        var t0 = k / n, t1 = (k + 1) / n;
-        chunks.push({
-          p0: { x: s.x1 + (s.x2 - s.x1) * t0 + ox, y: s.y1 + (s.y2 - s.y1) * t0 + oy },
-          p1: { x: s.x1 + (s.x2 - s.x1) * t1 + ox, y: s.y1 + (s.y2 - s.y1) * t1 + oy }
-        });
-      }
-      items.push({ chunks: chunks, w: s.kind === 'h' ? 1.6 : 1.5, kind: s.kind });
-    });
-    /* 种子圆：主涡 / 副涡各一圈 —— 旋转点的本体，涡环绕它纺出 */
-    [C.A, C.B].forEach(function (v) {
-      items.push({ chunks: arcsOf(v.x, v.y, v.r * .34, v.dir),
-                   w: 2.4, kind: 'o', seedV: v });
-    });
-    /* 月心种子：橙色实心圆，第②幕收笔 */
-    items.push({ moonSeed: true });
-
-    var sketchMs = Math.round((items.length - 1) * INK * CHAIN + INK + TAIL);
-    var moonStart = (items.length - 1) * INK * CHAIN;
-    TIMING.sketch = sketchMs;
-    var rotateStart = TIMING.quiet + sketchMs + 60;   /* 点火时刻（单位 ms） */
-
-    /* 构造线段 → 流场格子的分配（贪心就近、不重复占格） */
-    var assignedCell = {}, aCells = {}, nChunks = 0;
-    function takeCell(x, y) {
-      var best = null, bd = 1e9, bestAny = null, bdAny = 1e9;
-      cellGroups.forEach(function (cg) {
-        var dd = (cg.cx - x) * (cg.cx - x) + (cg.cy - y) * (cg.cy - y);
-        if (dd < bdAny) { bdAny = dd; bestAny = cg; }
-        if (!assignedCell[cg.key] && dd < bd) { bd = dd; best = cg; }
+    cellGroups.forEach(function (cg) {
+      cg.kept.forEach(function (b, u) {
+        var el = mkUnit(b.d, 'pk pk-fly');
+        el.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+          M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
+        var a = Math.atan2(cg.cy - M.y, cg.cx - M.x);
+        var dist = cg.dist;
+        var r0 = M.r * 1.03, r1 = Math.max(dist * .97, 40);
+        var hsh = hashN(cg.kx * 131 + cg.ky * 77 + u * 17 + 3);
+        el.style.setProperty('--a0', (-(60 + hsh * 70)).toFixed(0) + 'deg');
+        el.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - cg.cx).toFixed(1) + 'px');
+        el.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - cg.cy).toFixed(1) + 'px');
+        var dd2 = clamp(900 + dist * .5, 900, 1600);
+        var dl = ENG.waveStart + (dist / maxDist) * WAVE + hsh * 140 + u * 60;
+        el.style.setProperty('--fl-dur', (dd2 * pace).toFixed(0) + 'ms');
+        el.style.setProperty('--fl-delay', ((rotateStart + dl) * pace).toFixed(0) + 'ms');
+        push(el); reg(el, 'cell');
+        counts.cellUnits++;
       });
-      var cg = best || bestAny;
-      assignedCell[cg.key] = true;
-      return cg;
-    }
-    function pivotFor(x, y) {
-      var da = (x - C.A.x) * (x - C.A.x) + (y - C.A.y) * (y - C.A.y);
-      var db = (x - C.B.x) * (x - C.B.x) + (y - C.B.y) * (y - C.B.y);
-      return da <= db ? C.A : C.B;
-    }
+    });
 
-    /* ── 3) 第②幕 DOM：构造线段 + 种子 ────────────────────────── */
-    var cellW2 = W / COLS * .85, cellH2 = H / ROWS * .85;
-    items.forEach(function (it, li) {
-      if (it.moonSeed) return;                       /* 收笔，循环外单独建 */
-      var lineStart = li * INK * CHAIN;
-      var per = INK / it.chunks.length;
+    /* 4b) A 路：每段线 → 公转半圈 → 飞到那支笔 → d 形变成它的曲线。
+       形变目标是"那支笔的坐标反算回线段局部系"——落定后与真笔逐像素同源。 */
+    pieces.forEach(function (pc, pi) {
+      var d = pc.dab;
+      var I = INKc[d.k];
+      var dabW = I.w * TI[d.t].k;
+      var lineStart = pc.li * INK * CHAIN;
+      var per = INK / pc.np;
 
-      it.chunks.forEach(function (ch, k) {
-        var isSeed = it.kind === 'o';
-        var dStr, len;
-        if (isSeed) { dStr = ch.d; len = ch.len; }
-        else {
-          dStr = 'M' + ch.p0.x.toFixed(1) + ' ' + ch.p0.y.toFixed(1) +
-                 'L' + ch.p1.x.toFixed(1) + ' ' + ch.p1.y.toFixed(1);
-          len = Math.hypot(ch.p1.x - ch.p0.x, ch.p1.y - ch.p0.y);
-        }
-        var cxm, cym;
-        if (isSeed) { cxm = it.seedV.x; cym = it.seedV.y; }
-        else { cxm = (ch.p0.x + ch.p1.x) / 2; cym = (ch.p0.y + ch.p1.y) / 2; }
-        var g = SC.svg('g', { 'class': 'gk' });
-        var gi = SC.svg('g', { 'class': 'gk-i' });
-        var color, domW = 2;
-        var cg = null;
+      var cxm = (pc.p0.x + pc.p1.x) / 2, cym = (pc.p0.y + pc.p1.y) / 2;
+      var len = Math.hypot(pc.p1.x - pc.p0.x, pc.p1.y - pc.p0.y);
+      var pa = Math.atan2(pc.p1.y - pc.p0.y, pc.p1.x - pc.p0.x);
 
-        if (isSeed) {
-          color = INKc[2].c;                          /* 钴蓝：涡环的主墨 */
-        } else {
-          cg = takeCell(cxm, cym);
-          var dom = cg.kept[0];
-          color = INKc[dom.k].c;                      /* 出生即带归宿的墨色 */
-          domW = INKc[dom.k].w * TI[dom.t].k;
-        }
+      var g = SC.svg('g', { 'class': 'gk gk-orbit' });
+      var pivot = pivotFor(cxm, cym);
+      var dirSign = pivot.dir < 0 ? -1 : 1;
+      var spin = dirSign * (185 + (pi % 4) * 9);
+      g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+        pivot.x.toFixed(1) + 'px ' + pivot.y.toFixed(1) + 'px');
+      var flStart = rotateStart + ENG.chunkStart + pi * ENG.pieceStagger;
+      g.style.setProperty('--spin', spin.toFixed(0) + 'deg');
+      void dirSign;
+      g.style.setProperty('--fl-dur', (ENG.pieceDur * pace).toFixed(0) + 'ms');
+      g.style.setProperty('--fl-delay', (flStart * pace).toFixed(0) + 'ms');
 
+      var gi = SC.svg('g', { 'class': 'gk-i' });
+      gi.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+        cxm.toFixed(1) + 'px ' + cym.toFixed(1) + 'px');
+      gi.style.setProperty('--dx', (d.x - cxm).toFixed(1) + 'px');
+      gi.style.setProperty('--dy', (d.y - cym).toFixed(1) + 'px');
+      /* 外层末帧回卷到 0（CSS 里 48%→100% 从 spin 回到 0），
+         所以内层只需补齐笔的流向角：rr = 笔角 - 线段角 */
+      var rr = (d.a - pa) * 180 / Math.PI;
+      gi.style.setProperty('--rr', rr.toFixed(1) + 'deg');
+
+      /* 直线段写成 Q（控制点在弦上），形变目标 = 笔的路径反算回局部系：
+         local(p) = O + R(-rr)·(W - dc)，保证组合变换后世界坐标 = 真笔坐标 */
+      var m = /M(-?[\d.]+) (-?[\d.]+)Q(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)/.exec(d.d);
+      var co = [[+m[1], +m[2]], [+m[3], +m[4]], [+m[5], +m[6]]];
+      var cosr = Math.cos(-rr * Math.PI / 180), sinr = Math.sin(-rr * Math.PI / 180);
+      var tp = co.map(function (pt) {
+        var wx = pt[0] - d.x, wy = pt[1] - d.y;
+        return (cxm + wx * cosr - wy * sinr).toFixed(1) + ' ' +
+               (cym + wx * sinr + wy * cosr).toFixed(1);
+      });
+      var path = SC.svg('path', {
+        d: 'M' + pc.p0.x.toFixed(1) + ' ' + pc.p0.y.toFixed(1) +
+           'Q' + cxm.toFixed(1) + ' ' + cym.toFixed(1) + ' ' +
+           pc.p1.x.toFixed(1) + ' ' + pc.p1.y.toFixed(1),
+        fill: 'none', stroke: I.c, 'stroke-width': 1.6, 'class': 'ln-p ln-piece'
+      });
+      path.style.setProperty('--len', len.toFixed(1));
+      path.style.setProperty('--ink-dur', (per * pace).toFixed(0) + 'ms');
+      path.style.setProperty('--ink-delay', ((lineStart + pc.pi0 * per * .8) * pace).toFixed(0) + 'ms');
+      path.style.setProperty('--fd', 'path("M' + tp[0] + 'Q' + tp[1] + ' ' + tp[2] + '")');
+      path.style.setProperty('--mo-dur', (ENG.pieceDur * .45 * pace).toFixed(0) + 'ms');
+      path.style.setProperty('--mo-delay', ((flStart + ENG.pieceDur * .55) * pace).toFixed(0) + 'ms');
+      path.style.setProperty('--tw', dabW.toFixed(2));
+      path.style.setProperty('--thick-delay', ((flStart + ENG.pieceDur * .3) * pace).toFixed(0) + 'ms');
+      gi.appendChild(path);
+      g.appendChild(gi);
+      push(g);
+      reg(g, 'piece', d.x, d.y);
+      counts.pieces++;
+    });
+
+    /* 4c) 种子圆：主涡 / 副涡各一圈，涡环纺完后淡出让位 */
+    [C.A, C.B].forEach(function (v, idx) {
+      var order = idx;
+      var vEnd = ENG.vortexStart + order * ENG.vortexSpread + ENG.ringGap +
+                 3 * ENG.sectorSpread + ENG.vortexDur + 180;
+      arcsOf(v.x, v.y, v.r * .34, v.dir).forEach(function (ch, k) {
+        var g = SC.svg('g', { 'class': 'gk seed-g' });
+        g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+          v.x.toFixed(1) + 'px ' + v.y.toFixed(1) + 'px');
+        g.style.setProperty('--fd-delay', ((rotateStart + vEnd) * pace).toFixed(0) + 'ms');
         var p = SC.svg('path', {
-          d: dStr, fill: 'none', stroke: color,
-          'stroke-width': it.w, 'class': 'ln-p'
+          d: ch.d, fill: 'none', stroke: INKc[2].c, 'stroke-width': 2.4, 'class': 'ln-p'
         });
-        p.style.setProperty('--len', len.toFixed(1));
-        p.style.setProperty('--ink-dur', (per * pace).toFixed(0) + 'ms');
-        p.style.setProperty('--ink-delay', ((lineStart + k * per) * pace).toFixed(0) + 'ms');
-        gi.appendChild(p);
-        g.appendChild(gi);
-
-        if (isSeed) {
-          /* 种子不飞行：留在原地转，涡环纺完后淡出让位 */
-          var v = it.seedV;
-          var order = v.id === 'A' ? 0 : 1;
-          var vEnd = ENG.vortexStart + order * ENG.vortexSpread + ENG.ringGap +
-                     2 * ENG.sectorSpread + ENG.vortexDur + 180;
-          g.setAttribute('class', 'gk seed-g');
-          g.style.setProperty('--fd-delay', ((rotateStart + vEnd) * pace).toFixed(0) + 'ms');
-          counts.chunks++;
-        } else {
-          /* A 路：公转 ≥半圈 → 升档成颜料 → 甩落到自己的格子 */
-          var ci = nChunks++;
-          counts.chunks++;
-          var flStart = rotateStart + ENG.chunkStart + ci * ENG.chunkStag;
-          var pivot = pivotFor(cxm, cym);
-          var dirSign = pivot.dir < 0 ? -1 : 1;
-          g.classList.add('gk-orbit');
-          g.style.setProperty('--ax', pivot.x.toFixed(1) + 'px');
-          g.style.setProperty('--ay', pivot.y.toFixed(1) + 'px');
-          g.style.setProperty('--spin', (dirSign * (195 + (ci % 5) * 11)).toFixed(0) + 'deg');
-          g.style.setProperty('--fl-dur', (ENG.chunkDur * pace).toFixed(0) + 'ms');
-          g.style.setProperty('--fl-delay', (flStart * pace).toFixed(0) + 'ms');
-          gi.setAttribute('style', 'transform-box:view-box;transform-origin:' +
-            cxm.toFixed(1) + 'px ' + cym.toFixed(1) + 'px');
-          gi.style.setProperty('--dx', (cg.cx - cxm).toFixed(1) + 'px');
-          gi.style.setProperty('--dy', (cg.cy - cym).toFixed(1) + 'px');
-          var sx2, sy2;
-          if (it.kind === 'h') {
-            sx2 = clamp(cellW2 / len, .25, 1);
-            sy2 = clamp(domW / it.w, 1.2, 3.4);
-          } else {
-            sy2 = clamp(cellH2 / len, .25, 1);
-            sx2 = clamp(domW / it.w, 1.2, 3.4);
-          }
-          gi.style.setProperty('--sx', sx2.toFixed(2));
-          gi.style.setProperty('--sy', sy2.toFixed(2));
-          gi.style.setProperty('--gone-delay', ((flStart + ENG.chunkDur - 40) * pace).toFixed(0) + 'ms');
-          p.style.setProperty('--tw', domW.toFixed(2));
-          p.style.setProperty('--thick-delay', ((flStart + ENG.chunkDur * .38) * pace).toFixed(0) + 'ms');
-          /* 这个格子的颜料等线落地后原地显影 */
-          var cEnd = flStart + ENG.chunkDur;
-          if (!aCells[cg.key] || aCells[cg.key] < cEnd) aCells[cg.key] = cEnd;
-          reg(g, 'chunk', cg.cx, cg.cy);
-        }
-        svgL.appendChild(g);
+        p.style.setProperty('--len', ch.len.toFixed(1));
+        p.style.setProperty('--ink-dur', (INK / 4 * pace).toFixed(0) + 'ms');
+        p.style.setProperty('--ink-delay', (((nLines + idx * 0) * INK * CHAIN + k * INK / 4) * pace).toFixed(0) + 'ms');
+        g.appendChild(p);
+        push(g);
       });
     });
 
-    /* 月心种子：橙色实心圆（第②幕收笔）→ 点火后旋转中长成月盘 */
-      var mSeed = SC.svg('g', { 'class': 'seed-moon' });
-      mSeed.setAttribute('style', 'transform-box:view-box;transform-origin:' +
-        M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
-      mSeed.style.setProperty('--fill-delay', ((moonStart + INK + 40) * pace).toFixed(0) + 'ms');
-      mSeed.style.animation =
-        'seed-spin 9.5s linear ' + (rotateStart * pace).toFixed(0) + 'ms infinite,' +
-        'seed-fade .7s ease ' + ((rotateStart + ENG.moonSeedFade) * pace).toFixed(0) + 'ms both';
-      var mr = M.r * .62;
-      var outline = SC.svg('circle', { cx: M.x.toFixed(1), cy: M.y.toFixed(1),
-        r: mr.toFixed(1), pathLength: 100, fill: 'none',
-        stroke: INKc[6].c, 'stroke-width': 2.6, 'class': 'ln-p' });
-      outline.style.setProperty('--len', '100');
-      outline.style.setProperty('--ink-dur', (INK * pace).toFixed(0) + 'ms');
-      outline.style.setProperty('--ink-delay', (moonStart * pace).toFixed(0) + 'ms');
-      mSeed.appendChild(outline);
-      mSeed.appendChild(SC.svg('circle', { cx: M.x.toFixed(1), cy: M.y.toFixed(1),
-        r: mr.toFixed(1), fill: INKc[6].c, 'class': 'seed-moon-fill' }));
-      [0.9, 3.6].forEach(function (a0) {
-        var a1 = a0 + 1.5, rr2 = M.r * .4;
-        mSeed.appendChild(SC.svg('path', {
-          d: 'M' + (M.x + Math.cos(a0) * rr2).toFixed(1) + ' ' + (M.y + Math.sin(a0) * rr2).toFixed(1) +
-             'A' + rr2.toFixed(1) + ' ' + rr2.toFixed(1) + ' 0 0 1 ' +
-             (M.x + Math.cos(a1) * rr2).toFixed(1) + ' ' + (M.y + Math.sin(a1) * rr2).toFixed(1),
-          fill: 'none', stroke: '#e0a53e', 'stroke-width': 3.4, 'class': 'seed-mark'
-        }));
+    /* 4d) 涡环：绕各自的种子/中心旋入（旋转点完善自身），扇区更细 */
+    var vOrder = { A: 0, B: 1, S: 2 };
+    groupDabs(ringD, function (d) {
+      var ang = Math.atan2(d.y - d.vy, d.x - d.vx);
+      var sec = Math.floor((ang + Math.PI) / (Math.PI / 2)) % 4;
+      return d.g + '#' + d.ri + '#' + sec;
+    }, KEEP).forEach(function (g) {
+      var parts = g.key.split('#');
+      var vid = parts[0].split(':')[1];
+      var ri = +parts[1], sec = +parts[2];
+      var v = vid === 'A' ? C.A : vid === 'B' ? C.B : C.S;
+      var dirSign = v.dir < 0 ? -1 : 1;
+      g.kept.forEach(function (b, u) {
+        var el = mkUnit(b.d, 'pk pk-spin');
+        el.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+          v.x.toFixed(1) + 'px ' + v.y.toFixed(1) + 'px');
+        var hsh = hashN(b.d.length * 53 + sec * 29 + ri * 13);
+        el.style.setProperty('--a0', (-(120 + hsh * 140) * dirSign).toFixed(0) + 'deg');
+        el.style.setProperty('--sp-dur', (ENG.vortexDur * pace).toFixed(0) + 'ms');
+        var dl = ENG.vortexStart + (vOrder[vid] || 0) * ENG.vortexSpread +
+                 (ri ? ENG.ringGap : 0) + sec * ENG.sectorSpread;
+        el.style.setProperty('--sp-delay', ((rotateStart + dl + u * 55) * pace).toFixed(0) + 'ms');
+        push(el); reg(el, 'ring');
+        counts.rings++;
       });
-      svgL.appendChild(mSeed);
+    });
 
-    /* ── 4) 月：盘面象限 + 光晕带，绕月心旋入（月完善自身）──────── */
-    var moonD = dabs.filter(function (d) { return d.g === 'moon'; });
+    /* 4e) 星：从月沿切线抛出 → 挂位 → 逐圈点火 */
+    var starMap = {};
+    starD.forEach(function (d) {
+      (starMap[d.si] = starMap[d.si] || []).push(d);
+    });
+    Object.keys(starMap).forEach(function (siK) {
+      var si = +siK, list = starMap[siK];
+      var s = C.stars[si];
+      if (!s) return;
+      counts.stars++;
+      var g = SC.svg('g', { 'class': 'pk pk-fly' });
+      g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+        M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
+      g.style.setProperty('--op', '1');
+      var a = Math.atan2(s.y - M.y, s.x - M.x);
+      var dist = Math.hypot(s.x - M.x, s.y - M.y);
+      var r0 = M.r * 1.05, r1 = Math.max(dist * .95, 40);
+      var hsh = hashN(si * 7919 + 13);
+      g.style.setProperty('--a0', (-(70 + hsh * 90)).toFixed(0) + 'deg');
+      g.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - s.x).toFixed(1) + 'px');
+      g.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - s.y).toFixed(1) + 'px');
+      var land = rotateStart + ENG.starStart + si * ENG.starStag + ENG.starDur;
+      g.style.setProperty('--fl-dur', (ENG.starDur * pace).toFixed(0) + 'ms');
+      g.style.setProperty('--fl-delay', ((rotateStart + ENG.starStart + si * ENG.starStag) * pace).toFixed(0) + 'ms');
+      var bands = [[], [], []];
+      list.forEach(function (d) {
+        var r = Math.hypot(d.x - s.x, d.y - s.y) / s.r;
+        bands[r < .38 ? 0 : r < .72 ? 1 : 2].push(d);
+      });
+      for (var bd = 0; bd < 3; bd++) {
+        if (!bands[bd].length) continue;
+        groupDabs(bands[bd], function () { return 'b'; }, 4)
+          .forEach(function (bg) {
+            bg.kept.forEach(function (b) {
+              var el = mkUnit(b.d, 'star-part');
+              el.style.setProperty('--ig-delay', ((land + (bd === 0 ? -160 : (bd - 1) * 150)) * pace).toFixed(0) + 'ms');
+              g.appendChild(el);
+            });
+          });
+      }
+      push(g); reg(g, 'star');
+    });
+
+    /* 4f) 月种子：橙色实心圆（第②幕收笔）→ 点火后旋转中长成月盘 */
+    var mSeed = SC.svg('g', { 'class': 'seed-moon' });
+    mSeed.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+      M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
+    mSeed.style.setProperty('--fill-delay', ((moonStart + INK + 40) * pace).toFixed(0) + 'ms');
+    mSeed.style.animation =
+      'seed-spin 9.5s linear ' + (rotateStart * pace).toFixed(0) + 'ms infinite,' +
+      'seed-fade .7s ease ' + ((rotateStart + ENG.moonSeedFade) * pace).toFixed(0) + 'ms both';
+    var mr = M.r * .62;
+    var outline = SC.svg('circle', { cx: M.x.toFixed(1), cy: M.y.toFixed(1),
+      r: mr.toFixed(1), pathLength: 100, fill: 'none',
+      stroke: INKc[6].c, 'stroke-width': 2.6, 'class': 'ln-p' });
+    outline.style.setProperty('--len', '100');
+    outline.style.setProperty('--ink-dur', (INK * pace).toFixed(0) + 'ms');
+    outline.style.setProperty('--ink-delay', (moonStart * pace).toFixed(0) + 'ms');
+    mSeed.appendChild(outline);
+    mSeed.appendChild(SC.svg('circle', { cx: M.x.toFixed(1), cy: M.y.toFixed(1),
+      r: mr.toFixed(1), fill: INKc[6].c, 'class': 'seed-moon-fill' }));
+    [0.9, 3.6].forEach(function (a0) {
+      var a1 = a0 + 1.5, rr2 = M.r * .4;
+      mSeed.appendChild(SC.svg('path', {
+        d: 'M' + (M.x + Math.cos(a0) * rr2).toFixed(1) + ' ' + (M.y + Math.sin(a0) * rr2).toFixed(1) +
+           'A' + rr2.toFixed(1) + ' ' + rr2.toFixed(1) + ' 0 0 1 ' +
+           (M.x + Math.cos(a1) * rr2).toFixed(1) + ' ' + (M.y + Math.sin(a1) * rr2).toFixed(1),
+        fill: 'none', stroke: '#e0a53e', 'stroke-width': 3.4, 'class': 'seed-mark'
+      }));
+    });
+    push(mSeed);
+
+    /* 4g) 月晕带 + 月盘象限：绕月心旋入（月完善自身，最顶层） */
     groupDabs(moonD, function (d) {
       if (d.ri === 0) {
         var ang = Math.atan2(d.y - M.y, d.x - M.x);
@@ -563,141 +665,26 @@
         el.setAttribute('style', 'transform-box:view-box;transform-origin:' +
           M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
         var hsh = hashN(b.d.length * 97 + idx * 31 + (isDisk ? 5 : 9));
-        el.style.setProperty('--a0', (-(60 + hsh * 130)).toFixed(0) + 'deg');
+        el.style.setProperty('--a0', (-(120 + hsh * 160)).toFixed(0) + 'deg');
         el.style.setProperty('--sp-dur', ((isDisk ? ENG.diskDur : ENG.haloDur) * pace).toFixed(0) + 'ms');
-        var dl = isDisk ? 120 + idx * ENG.diskSpread
+        var dl = isDisk ? 160 + idx * ENG.diskSpread
                         : ENG.haloStart + idx * ENG.haloSpread;
-        el.style.setProperty('--sp-delay', ((rotateStart + dl + u * 45) * pace).toFixed(0) + 'ms');
-        svgL.appendChild(el);
-        reg(el, isDisk ? 'moon-disk' : 'moon-halo');
+        el.style.setProperty('--sp-delay', ((rotateStart + dl + u * 55) * pace).toFixed(0) + 'ms');
+        push(el); reg(el, isDisk ? 'moon-disk' : 'moon-halo');
         counts.moon++;
       });
     });
 
-    /* ── 5) 涡环：绕各自的种子/中心旋入（旋转点完善自身）────────── */
-    var ringD = dabs.filter(function (d) { return d.g.indexOf('ring') === 0; });
-    var vOrder = { A: 0, B: 1, S: 2 };
-    groupDabs(ringD, function (d) {
-      var ang = Math.atan2(d.y - d.vy, d.x - d.vx);
-      var sec = Math.floor((ang + Math.PI) / (2 * Math.PI / 3)) % 3;
-      return d.g + '#' + d.ri + '#' + sec;
-    }, mob ? 3 : 5).forEach(function (g) {
-      var parts = g.key.split('#');
-      var vid = parts[0].split(':')[1];
-      var ri = +parts[1], sec = +parts[2];
-      var v = vid === 'A' ? C.A : vid === 'B' ? C.B : C.S;
-      var dirSign = v.dir < 0 ? -1 : 1;
-      g.kept.forEach(function (b, u) {
-        var el = mkUnit(b.d, 'pk pk-spin');
-        el.setAttribute('style', 'transform-box:view-box;transform-origin:' +
-          v.x.toFixed(1) + 'px ' + v.y.toFixed(1) + 'px');
-        var hsh = hashN(b.d.length * 53 + sec * 29 + ri * 13);
-        el.style.setProperty('--a0', (-(60 + hsh * 110) * dirSign).toFixed(0) + 'deg');
-        el.style.setProperty('--sp-dur', (ENG.vortexDur * pace).toFixed(0) + 'ms');
-        var dl = ENG.vortexStart + (vOrder[vid] || 0) * ENG.vortexSpread +
-                 (ri ? ENG.ringGap : 0) + sec * ENG.sectorSpread;
-        el.style.setProperty('--sp-delay', ((rotateStart + dl + u * 45) * pace).toFixed(0) + 'ms');
-        svgL.appendChild(el);
-        reg(el, 'ring');
-        counts.rings++;
-      });
-    });
-
-    /* ── 6) 星：从月沿切线抛出 → 挂位 → 逐圈点火 ────────────────── */
-    var starMap = {};
-    dabs.forEach(function (d) {
-      if (d.g === 'star') (starMap[d.si] = starMap[d.si] || []).push(d);
-    });
-    Object.keys(starMap).forEach(function (siK) {
-      var si = +siK, list = starMap[siK];
-      var s = C.stars[si];
-      if (!s) return;
-      counts.stars++;
-      var g = SC.svg('g', { 'class': 'pk pk-fly' });
-      g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
-        M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
-      g.style.setProperty('--op', '1');
-      var a = Math.atan2(s.y - M.y, s.x - M.x);
-      var dist = Math.hypot(s.x - M.x, s.y - M.y);
-      var r0 = M.r * 1.06, r1 = Math.max(dist * .94, 40);
-      var hsh = hashN(si * 7919 + 13);
-      g.style.setProperty('--a0', (-(55 + hsh * 70)).toFixed(0) + 'deg');
-      g.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - s.x).toFixed(1) + 'px');
-      g.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - s.y).toFixed(1) + 'px');
-      g.style.setProperty('--vx1', (M.x + r1 * Math.cos(a) - s.x).toFixed(1) + 'px');
-      g.style.setProperty('--vy1', (M.y + r1 * Math.sin(a) - s.y).toFixed(1) + 'px');
-      var land = rotateStart + ENG.starStart + si * ENG.starStag + ENG.starDur;
-      g.style.setProperty('--fl-dur', (ENG.starDur * pace).toFixed(0) + 'ms');
-      g.style.setProperty('--fl-delay', ((rotateStart + ENG.starStart + si * ENG.starStag) * pace).toFixed(0) + 'ms');
-      /* 核先亮，两圈晕环落位后逐圈点火 */
-      var bands = [[], [], []];
-      list.forEach(function (d) {
-        var r = Math.hypot(d.x - s.x, d.y - s.y) / s.r;
-        bands[r < .38 ? 0 : r < .72 ? 1 : 2].push(d);
-      });
-      for (var bd = 0; bd < 3; bd++) {
-        if (!bands[bd].length) continue;
-        groupDabs(bands[bd], function () { return 'b'; }, mob ? 3 : 4)
-          .forEach(function (bg) {
-            bg.kept.forEach(function (b) {
-              var el = mkUnit(b.d, 'star-part');
-              el.style.setProperty('--ig-delay', ((land + (bd === 0 ? -160 : (bd - 1) * 150)) * pace).toFixed(0) + 'ms');
-              g.appendChild(el);
-            });
-          });
-      }
-      svgL.appendChild(g);
-      reg(g, 'star');
-    });
-
-    /* ── 7) 格子颜料：A 路的归宿原地显影，其余从月沿甩出（B 路）── */
-    cellGroups.forEach(function (cg) {
-      var aEnd = aCells[cg.key];
-      cg.kept.forEach(function (b, u) {
-        if (aEnd != null) {
-          /* A 路：等构造线段落进格子后原地显影（同位同色交叉淡替） */
-          var el = mkUnit(b.d, 'pk pk-a');
-          el.style.setProperty('--in-delay', ((aEnd - 140 + u * 55) * pace).toFixed(0) + 'ms');
-          el.style.setProperty('--in-dur', (280 * pace).toFixed(0) + 'ms');
-          svgL.appendChild(el);
-          reg(el, 'cell-a');
-          counts.cellUnits++;
-        } else {
-          /* B 路：出生点压在月沿上，螺旋甩向落点，由近及远的生长波 */
-          var el = mkUnit(b.d, 'pk pk-fly');
-          el.setAttribute('style', 'transform-box:view-box;transform-origin:' +
-            M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
-          var a = Math.atan2(cg.cy - M.y, cg.cx - M.x);
-          var dist = cg.dist;
-          var r0 = M.r * 1.04, r1 = Math.max(dist * .96, 40);
-          var hsh = hashN(cg.kx * 131 + cg.ky * 77 + u * 17 + 3);
-          el.style.setProperty('--a0', (-(35 + hsh * 55)).toFixed(0) + 'deg');
-          el.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - cg.cx).toFixed(1) + 'px');
-          el.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - cg.cy).toFixed(1) + 'px');
-          el.style.setProperty('--vx1', (M.x + r1 * Math.cos(a) - cg.cx).toFixed(1) + 'px');
-          el.style.setProperty('--vy1', (M.y + r1 * Math.sin(a) - cg.cy).toFixed(1) + 'px');
-          var dd2 = clamp(520 + dist * .38, 520, 1350);
-          var dl = ENG.waveStart + (dist / maxDist) * WAVE + hsh * 120 + u * 40;
-          el.style.setProperty('--fl-dur', (dd2 * pace).toFixed(0) + 'ms');
-          el.style.setProperty('--fl-delay', ((rotateStart + dl) * pace).toFixed(0) + 'ms');
-          svgL.appendChild(el);
-          reg(el, 'cell-b');
-          counts.cellUnits++;
-        }
-      });
-    });
-
-    /* ── 8) 第④幕幕长 = 最晚收尾的轨道 ─────────────────────────── */
+    /* ── 5) 第④幕幕长 = 最晚收尾的轨道 ─────────────────────────── */
+    var pieceEnd = ENG.chunkStart + (pieces.length - 1) * ENG.pieceStagger +
+                   ENG.pieceDur + 220;
     var starEnd = ENG.starStart + 10 * ENG.starStag + ENG.starDur + 400;
-    var waveEnd = ENG.waveStart + WAVE + 1350 + 160;
-    var chunkEnd = ENG.chunkStart + Math.max(0, nChunks - 1) * ENG.chunkStag +
-                   ENG.chunkDur + 260;
+    var waveEnd = ENG.waveStart + WAVE + 1600 + 180;
     var vortexEnd = ENG.vortexStart + 2 * ENG.vortexSpread + ENG.ringGap +
-                    2 * ENG.sectorSpread + ENG.vortexDur + 120;
+                    3 * ENG.sectorSpread + ENG.vortexDur + 120;
     var moonEnd = ENG.haloStart + 2 * ENG.haloSpread + ENG.haloDur + 120;
-    TIMING.paint = Math.round(Math.max(starEnd, waveEnd, chunkEnd, vortexEnd, moonEnd));
+    TIMING.paint = Math.round(Math.max(pieceEnd, starEnd, waveEnd, vortexEnd, moonEnd));
 
-    /* 验收对账：位置偏差 + 透明度 */
     function verify() {
       var bad = 0, worst = 0, at = null, opBad = 0;
       registry.forEach(function (u, i) {
@@ -712,9 +699,18 @@
           if (!(op > u.op - .06)) opBad++;
         }
       });
+      var samples = [];
+      registry.forEach(function (u) {
+        if (samples.length >= 6) return;
+        var r = u.el.getBoundingClientRect();
+        var dd = Math.hypot(r.left + r.width / 2 - u.x, r.top + r.height / 2 - u.y);
+        if (dd > 2.5) samples.push({ k: u.kind,
+          exp: [Math.round(u.x), Math.round(u.y)],
+          act: [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)] });
+      });
       return JSON.stringify({ total: registry.length, bad: bad,
         worst: Math.round(worst * 10) / 10, at: at, opBad: opBad,
-        counts: counts });
+        samples: samples, counts: counts });
     }
 
     return { el: svgL, verify: verify, counts: counts };

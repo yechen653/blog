@@ -271,26 +271,33 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 @keyframes ln-thick{to{stroke-width:var(--tw,2)}}
 
 .gk{transform-box:view-box;transform-origin:var(--ax) var(--ay)}
+/* A 路外层：绕涡心公转半圈以上并保持 —— 方向感来自"甩出"，不回卷 */
 .gk-orbit{
   animation:chunk-orbit var(--fl-dur) cubic-bezier(.4,.05,.28,1) var(--fl-delay) both;
   will-change:transform;
 }
 @keyframes chunk-orbit{
   0%{transform:rotate(0deg)}
-  42%{transform:rotate(var(--spin))}
-  72%{transform:rotate(var(--spin))}
+  48%{transform:rotate(var(--spin))}
   100%{transform:rotate(0deg)}
 }
+/* A 路内层：后半程滑向自己那支笔、转正到它的流向角 */
 .gk-i{
   transform-box:view-box;transform-origin:var(--cx) var(--cy);
-  animation:chunk-glide var(--fl-dur) cubic-bezier(.34,.06,.24,1) var(--fl-delay) both,
-            chunk-gone .24s ease var(--gone-delay) forwards;
+  animation:piece-glide var(--fl-dur) cubic-bezier(.34,.06,.24,1) var(--fl-delay) both;
 }
-@keyframes chunk-glide{
-  0%,58%{transform:translate(0,0) scale(1,1)}
-  100%{transform:translate(var(--dx),var(--dy)) scale(var(--sx),var(--sy))}
+@keyframes piece-glide{
+  0%,40%{transform:translate(0,0) rotate(0deg)}
+  100%{transform:translate(var(--dx),var(--dy)) rotate(var(--rr))}
 }
-@keyframes chunk-gone{to{opacity:0}}
+/* A 路路径：飞行后半程直线形变成那支笔的曲线（d 同结构 M+Q 可插值），
+   同时升档到它的粗细 —— 落定即真笔，不需要任何淡替 */
+.ln-piece{
+  animation:ink-draw var(--ink-dur) cubic-bezier(.42,.06,.32,1) var(--ink-delay) forwards,
+            piece-morph var(--mo-dur) ease var(--mo-delay,99999ms) forwards,
+            ln-thick .6s ease var(--thick-delay,99999ms) forwards;
+}
+@keyframes piece-morph{to{d:var(--fd)}}
 
 /* 种子：涡环纺完、月盘长成后淡出让位 */
 .seed-g{animation:seed-fade .45s ease var(--fd-delay,99999ms) both}
@@ -309,13 +316,12 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 .star-part{opacity:0;animation:star-ignite .32s ease var(--ig-delay,99999ms) both}
 @keyframes paint-fly{
   0%{transform:rotate(var(--a0)) translate(var(--vx0),var(--vy0));opacity:0}
-  16%{opacity:var(--op,1)}
-  45%{transform:rotate(0deg) translate(var(--vx1),var(--vy1))}
+  20%{opacity:var(--op,1)}
   100%{transform:rotate(0deg) translate(0,0);opacity:var(--op,1)}
 }
 @keyframes paint-spin{
   0%{transform:rotate(var(--a0));opacity:0}
-  16%{opacity:var(--op,1)}
+  22%{opacity:var(--op,1)}
   100%{transform:rotate(0deg);opacity:var(--op,1)}
 }
 @keyframes pk-in{from{opacity:0}to{opacity:var(--op,1)}}

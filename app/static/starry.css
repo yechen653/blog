@@ -42,10 +42,6 @@
   --field-pill-bg:rgba(242,201,76,.12);
   --field-pill-fg:#f2c94c;
   --field-rule:rgba(242,237,224,.11);
-  /* 揭幕构造线的墨：暖赭红。奶油纸上像铅笔稿；断线绕涡时夜空很暗很闹，
-     同一个赭红会被吃掉，所以在 is-air 里换成亮一档的同一色相。 */
-  --draft:#c9553a;
-  --draft-air:#e2754a;
   --btn-bg:#f2c94c;
   --btn-fg:#10233f;
   --paint-opacity:.66;
@@ -244,65 +240,86 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 .intro-flood.is-open{transform:scale(1.06);opacity:1}
 .intro-flood.is-fade{opacity:0;pointer-events:none}
 
-/* 迸发笔触：蓝 / 黄 / 白，沿切向甩出；用 CSS 动画跑 dashoffset，
-   不在主线程写任何属性。 */
-.intro-burst{
-  position:fixed;inset:0;width:100%;height:100%;z-index:9994;
+/* ── 颜料粒子层（揭幕演出专用，演完即拆）────────────────────
+   第②幕的构造线 / 种子与第④幕的所有颜料单元都画在这一层。
+   全部单元的运动是构建期写好的 CSS transform / opacity 关键帧：
+     · ln-p        第②幕的彩色构造线与种子：dasharray 收笔式起笔，
+                   一条画到 80% 才起下一条（ink-draw 的排期延迟）
+     · gk/gk-i     A 路构造线段：外层绕涡心公转 ≥195°（引擎转速），
+                   内层滑向自己的流场格子并缩放升档成颜料
+     · pk-fly      B 路格子 / 星：出生点压在月沿，rotate+translate
+                   两段矩阵插值出螺线，甩向落点
+     · pk-spin     月盘象限 / 月晕带 / 涡环扇区：绕所属中心旋入，
+                   中心们旋转时逐渐完善自身
+     · pk-a        A 路的归宿格子：等构造线段落进格子后原地显影，
+                   同位同色交叉淡替
+   演出期 setAttribute('d') = 0，主线程零逐帧写入。 */
+.intro-paint{
+  position:fixed;inset:0;width:100%;height:100%;z-index:9992;
   pointer-events:none;overflow:visible;
-  transition:opacity calc(.55s * var(--intro-pace,1)) ease;
+  transition:opacity calc(.45s * var(--intro-pace,1)) ease;
 }
-.intro-burst path{
-  fill:none;stroke-linecap:round;
-  stroke-dasharray:var(--len,200);
-  stroke-dashoffset:var(--len,200);
-}
-.intro-burst.is-on path{
-  animation:burst-draw calc(1.15s * var(--intro-pace,1)) cubic-bezier(.2,.7,.2,1)
-            var(--delay,0s) forwards;
-}
-.intro-burst.is-fade{opacity:0}
-@keyframes burst-draw{to{stroke-dashoffset:0}}
+.intro-paint.is-swap{opacity:0}
 
-/* ── 构造线层（只在揭幕期间存在，演完即拆）────────────────────
-   画的时候是制图线式的"一条一条现画"：dasharray 收到 0。
-   太阳画完后整层加 is-air，每段 <g> 各自跑两个阶段：
-     · 先绕最近的涡心转 185°+（transform-origin 就是涡心）
-     · 再纯 translate 飞到自己的落点上（落点=页面真实边线的坐标）
-   末帧是纯位移，所以落位是逐像素准的；中间 40% 那一帧是旋转，
-   两帧之间由矩阵分解插值 —— 一边"松开"一边滑过去，不会硬折。
-   每帧只写 CSS 变量，主线程零写入。 */
-.intro-guide{
-  position:fixed;inset:0;width:100%;height:100%;z-index:9993;
-  pointer-events:none;overflow:visible;
-  transition:opacity calc(.5s * var(--intro-pace,1)) ease;
-}
-/* 落位后先停一拍再淡：这一拍里红线和页面自己的边线是重合的，
-   观众要靠这一拍才看得出"每一条线都找得到归宿"。 */
-.intro-guide.is-fade{
-  opacity:0;
-  transition-delay:calc(.18s * var(--intro-pace,1));
-}
-.gk{transform-box:view-box;transform-origin:var(--ax) var(--ay)}
-.gk-p{
-  fill:none;stroke:var(--draft,#c9553a);
-  stroke-linecap:round;stroke-linejoin:round;
+.ln-p{
+  fill:none;stroke-linecap:round;stroke-linejoin:round;
   stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
-  animation:guide-ink var(--ink-dur) cubic-bezier(.42,.06,.32,1) var(--ink-delay) forwards;
+  animation:ink-draw var(--ink-dur) cubic-bezier(.42,.06,.32,1) var(--ink-delay) forwards,
+            ln-thick .55s ease var(--thick-delay,99999ms) forwards;
 }
-@keyframes guide-ink{to{stroke-dashoffset:0}}
-.intro-guide.is-air .gk-p{
-  stroke:var(--draft-air,#e2754a);
-  transition:stroke calc(.45s * var(--intro-pace,1)) ease;
-}
-.intro-guide.is-air g{
-  animation:guide-air var(--air-dur) cubic-bezier(.4,.04,.26,1) var(--air-delay) forwards;
+@keyframes ink-draw{to{stroke-dashoffset:0}}
+@keyframes ln-thick{to{stroke-width:var(--tw,2)}}
+
+.gk{transform-box:view-box;transform-origin:var(--ax) var(--ay)}
+.gk-orbit{
+  animation:chunk-orbit var(--fl-dur) cubic-bezier(.4,.05,.28,1) var(--fl-delay) both;
   will-change:transform;
 }
-@keyframes guide-air{
+@keyframes chunk-orbit{
   0%{transform:rotate(0deg)}
-  52%{transform:rotate(var(--spin))}
-  100%{transform:translate(var(--dx),var(--dy))}
+  42%{transform:rotate(var(--spin))}
+  72%{transform:rotate(var(--spin))}
+  100%{transform:rotate(0deg)}
 }
+.gk-i{
+  transform-box:view-box;transform-origin:var(--cx) var(--cy);
+  animation:chunk-glide var(--fl-dur) cubic-bezier(.34,.06,.24,1) var(--fl-delay) both,
+            chunk-gone .24s ease var(--gone-delay) forwards;
+}
+@keyframes chunk-glide{
+  0%,58%{transform:translate(0,0) scale(1,1)}
+  100%{transform:translate(var(--dx),var(--dy)) scale(var(--sx),var(--sy))}
+}
+@keyframes chunk-gone{to{opacity:0}}
+
+/* 种子：涡环纺完、月盘长成后淡出让位 */
+.seed-g{animation:seed-fade .45s ease var(--fd-delay,99999ms) both}
+.seed-moon-fill{opacity:0;animation:seed-fill .24s ease var(--fill-delay,99999ms) both}
+@keyframes seed-fill{to{opacity:.94}}
+.seed-mark{opacity:0;animation:mark-in .3s ease var(--fill-delay,99999ms) both}
+@keyframes mark-in{to{opacity:.5}}
+@keyframes seed-spin{to{transform:rotate(360deg)}}
+@keyframes seed-fade{to{opacity:0}}
+
+/* 颜料单元：末帧都是 identity，落定即真画 */
+.pk{opacity:0}
+.pk-fly{animation:paint-fly var(--fl-dur) cubic-bezier(.42,.08,.3,1) var(--fl-delay) both}
+.pk-spin{animation:paint-spin var(--sp-dur) cubic-bezier(.4,.06,.3,1) var(--sp-delay) both}
+.pk-a{animation:pk-in var(--in-dur) ease var(--in-delay) both}
+.star-part{opacity:0;animation:star-ignite .32s ease var(--ig-delay,99999ms) both}
+@keyframes paint-fly{
+  0%{transform:rotate(var(--a0)) translate(var(--vx0),var(--vy0));opacity:0}
+  16%{opacity:var(--op,1)}
+  45%{transform:rotate(0deg) translate(var(--vx1),var(--vy1))}
+  100%{transform:rotate(0deg) translate(0,0);opacity:var(--op,1)}
+}
+@keyframes paint-spin{
+  0%{transform:rotate(var(--a0));opacity:0}
+  16%{opacity:var(--op,1)}
+  100%{transform:rotate(0deg);opacity:var(--op,1)}
+}
+@keyframes pk-in{from{opacity:0}to{opacity:var(--op,1)}}
+@keyframes star-ignite{from{opacity:0}to{opacity:var(--op,1)}}
 
 .intro-ui{position:fixed;inset:0;z-index:9999;pointer-events:none}
 .intro-ui>button{pointer-events:auto}
@@ -378,10 +395,8 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 
 @media(prefers-reduced-motion:reduce){
   .v-ring{animation:none}
-  .intro-paper,.intro-flood,.intro-burst{transition:none}
-  .intro-guide,.intro-guide.is-fade{transition:none}
-  .gk-p{animation:none;stroke-dashoffset:0}
-  .intro-guide.is-air g{animation:none}
+  .intro-paper,.intro-flood{transition:none}
+  .ln-p,.pk,.star-part,.seed-g,.seed-moon-fill,.seed-mark{animation:none;opacity:1;transform:none}
   :root.is-3d .masthead-inner,
   :root.is-3d .hero > *,
   :root.is-3d .layout > main,

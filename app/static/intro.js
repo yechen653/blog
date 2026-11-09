@@ -1,24 +1,26 @@
 /* ============================================================
-   intro.js — 星月夜揭幕演出
+   intro.js — 星月夜揭幕演出（颜料引擎版）
    ------------------------------------------------------------
-   叙事：空白画板 → 一条一条画出页面的构造线 → 油画显影 → 月心迸发
-         → 构造线断成段、绕着两个涡心转半圈，落回各自的版式边线
-         → 夜空从月心漫开 → 个人主页显现
+   叙事：纯白画板 → 彩色构造线（先横 → 竖 → 两个种子圆 → 橙色实心
+         月圆收笔）→ 月心点火（种子开始旋转，月晕逐层长出）
+         → 引擎流水线（世界从第四幕就开始爆发，没有独立的"爆发幕"）：
+             · 月心旋转是全场唯一的发动机，提供相位时钟
+             · A 路 构造线段绕涡心公转 ≥半圈、升档成颜料、甩落到
+               自己的流场格子落位
+             · 两个旋转点绕自己的种子"纺"出涡环（环段从种子圆沿旋入）
+             · B 路 其余颜料从月沿甩出，按离月距离排成生长波铺满全画
+             · 11 颗星从月沿切线抛出、挂位、逐圈点火
+         → 收束（画板退场，夜色 + 长成的画留在台上）
+         → 主页显现（粒子层与真画同位交接，内容逐像素同源）
 
-   各幕对应的实现：
-     ① 空白画板   .intro-paper 淡入；页面元素先隐去
-     ② 构造线     按页面真实边线（masthead 分隔线 / hero 分隔线 /
-                  侧栏竖线 / 卡片框 …）现算坐标，先横后竖，最后两个
-                  圆；一条画到 80% 才开始下一条
-     ③ 油画显影   底纹与各旋转点分层淡入，构造线留在最上层
-     ④ 月心迸发   画里的月盘不动，只从盘沿甩出一圈暖色厚笔
-     ⑤ 断线归位   每段线绕最近的涡心转 ≥180°，再飞回自己那条边线；
-                  落点与最终页面逐像素重合，所以页面显现时看不出接缝
-     ⑥ 世界爆发   夜盘从月心向外铺开，各旋转点切快速公转
-     ⑦ 主页显现   画板与夜盘淡出，构造线褪掉，页面元素带 Z 轴纵深错峰落位
+   数据来源：starry-canvas.js 构建期把每一笔记录进 DABS 清单
+   （坐标 / 流向角 / 长度 / 墨 / 档 / 路径串 / 区域）。粒子层的单元
+   用的就是真画的路径串与墨色档位，落定后与真画完全一致，第⑥幕
+   交叉淡替时看不出接缝。
 
-   性能约束沿用上一版：所有 <path d> 只生成一次，演出期间
-   setAttribute('d') = 0；每帧不写任何像素，全部交给 CSS 合成器。
+   性能约束：所有 <path d> 只在构建期生成一次，演出期间
+   setAttribute('d') = 0；单元运动全部是 CSS transform/opacity
+   关键帧（轨迹在构建期写进各自的 CSS 变量），主线程零逐帧写入。
    ============================================================ */
 (function () {
   'use strict';
@@ -45,32 +47,39 @@
     try { sessionStorage.setItem(SEEN, '1'); } catch (e) { /* 隐私模式忽略 */ }
   }
 
+  /* 幕长（时间单位，真实毫秒 = 单位 × pace）。sketch / paint 两幕
+     在构建时按内容改写。 */
   var TIMING = {
     quiet: 380,      /* ① 空白画板 */
-    sketch: 1800,    /* ② 构造线（play() 里按线段数改写成真实排期） */
-    fill: 620,       /* ③ 油画显影 */
-    wake: 780,       /* ④ 月心迸发 */
-    air: 1150,       /* ⑤ 断线、绕涡心、落位 */
-    flood: 780,      /* ⑥ 世界爆发 */
-    settle: 280,     /* 收束 */
-    reveal: 780      /* ⑦ 主页显现 */
+    sketch: 2800,    /* ② 彩色构造线 + 三个种子 */
+    ignite: 650,     /* ③ 月心点火：种子开始旋转 */
+    paint: 4600,     /* ④ 引擎流水线 */
+    settle: 450,     /* ⑤ 收束 */
+    reveal: 780      /* ⑥ 主页显现 + 真画交接 */
   };
-  /* 整体放慢系数：1 = 原速。要调快慢只改这一个数 ——
-     幕的时长、层间过渡（内联 + CSS 的 --intro-pace）、涡臂公转、
-     迸发笔触全部乘它。只改 TIMING 不改 CSS 会出现
-     "时间线拉开了、过渡还是原速"的前松后紧。 */
+  /* 整体放慢系数：1 = 原速。幕长、层间过渡、粒子轨迹全部乘它 ——
+     CSS 侧走 --intro-pace 变量，时间线与过渡不会前松后紧。 */
   var PACE = 1.6;
   function speed() { return SC.mobile ? .78 : 1; }
-  /* 实际倍率：移动端屏幕小、看完更快，乘 .78 反而更紧凑 */
   var pace = PACE;
   function dur(sec) { return (sec * pace).toFixed(2) + 's'; }
 
-  /* ── 构造线的排期参数（未乘 pace）────────────────────────────
-     INK 是"一条线画完"的时长；CHAIN 是下一条的起笔点 —— .8 就是
-     「上一条画到 80% 才轮到下一条」。 */
+  /* 第②幕排期（未乘 pace）：INK = 一条线画完的时长，
+     CHAIN = 下一条的起笔点（.8 = 上一条画到 80% 才起下一条） */
   var INK = 300, CHAIN = .8, TAIL = 160;
-  /* 断线那一段：每段绕行的基础时长 + 彼此的错峰间隔（未乘 pace） */
-  var AIR_BASE = 1000, AIR_STAGGER = 26;
+
+  /* 第④幕排期（未乘 pace）。rotateStart（点火时刻）= quiet+sketch+60，
+     所有引擎轨道的 delay 都从它起算。 */
+  var ENG = {
+    diskSpread: 90,  diskDur: 850,                        /* 月盘象限旋入 */
+    haloStart: 820,  haloSpread: 240, haloDur: 900,       /* 月晕带旋入 */
+    vortexStart: 420, vortexSpread: 130,                  /* 涡环自纺 */
+    ringGap: 320, sectorSpread: 80, vortexDur: 800,
+    chunkStart: 420, chunkStag: 70, chunkDur: 1250,       /* A 路构造线 */
+    waveStart: 520,  waveSpan: 2400, waveSpanM: 1900,     /* B 路生长波 */
+    starStart: 1520, starStag: 130, starDur: 1050,        /* 星 */
+    moonSeedFade: 2500
+  };
 
   var REVEAL_SELECTORS = [
     '.masthead-inner', '.brand', '.nav', '.kicker', '.hero-title', '.hero-meta',
@@ -79,12 +88,11 @@
     '#list .card', '.pager', '.detail', '.footer-row', '.footer-word'
   ];
 
-  var playing = false, raf = 0, guard = 0, stage = null, geo = null, guide = null;
+  var playing = false, raf = 0, guard = 0, stage = null, geo = null, paint = null;
   var pageEls = [], revealNodes = [], disposers = [];
-  var burstFx = null;
   var maxR = 0;
   var start = 0, phase = 0, finished = false, htmlOverflow = '';
-  var burstPlayed = false, restartQueued = false;
+  var restartQueued = false;
 
   function reduce() {
     return !!(window.matchMedia &&
@@ -95,11 +103,16 @@
     target.addEventListener(type, fn);
     disposers.push(function () { target.removeEventListener(type, fn); });
   }
-  function ease(u) { return 1 - Math.pow(1 - u, 2.2); }
+  /* 确定性伪随机：重播与首播得到同一场演出 */
+  function hashN(seed) {
+    var s = (seed >>> 0) || 1;
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  }
 
-  /* ── 舞台：画板 / 夜盘 / UI（迸发层按需插入） ─────────────────
-     画板就是开场那张奶油纸：① 它淡入，② 在上面画两条涡臂，
-     ③ 油画显影盖上来，⑤ 夜空从月心漫开把它换掉，⑥ 一起退场。 */
+  /* ── 舞台：画板 / 夜盘 / UI ───────────────────────────────────
+     画板是开场那张纸：①②③幕所有东西都"画"在它上面；第④幕夜色
+     从月心随生长波漫上来（压在颜料粒子下面），第⑤幕纸退场。 */
   function buildStage() {
     var W = geo.W, H = geo.H, C = geo.comp, M = C.M;
 
@@ -109,9 +122,6 @@
     paper.className = 'intro-paper';
     paper.setAttribute('aria-hidden', 'true');
 
-    /* 夜盘：铺满整个屏幕的夜空白，初始缩到月心一点，第 ⑤ 幕放大。
-       它压在画层【下面】，所以笔触全程不会被遮住 —— 变的是"画板"
-       被夜空替换，正是"星月夜底色从月亮里漫出来"。 */
     var flood = document.createElement('div');
     flood.className = 'intro-flood';
     flood.style.width = flood.style.height = (maxR * 2).toFixed(0) + 'px';
@@ -148,15 +158,11 @@
     });
   }
 
-  /* 落点元素必须排除在"错峰落位"之外：它们带的是构造线要对齐的那条边，
-     一旦被 translate 推开十几像素，线就会落在半空中。 */
-  function collectReveal(exclude) {
-    var skip = exclude || [];
+  function collectReveal() {
     var found = [];
     REVEAL_SELECTORS.forEach(function (sel) {
       Array.prototype.forEach.call(document.querySelectorAll(sel), function (el) {
         if (found.length >= 48) return;
-        for (var q = 0; q < skip.length; q++) { if (skip[q] === el) return; }
         var r = el.getBoundingClientRect();
         if (r.width < 20 || r.height < 8) return;
         if (r.bottom < 0 || r.top > geo.H * 1.2) return;
@@ -171,27 +177,18 @@
         el: el,
         tx: (Math.cos(a) * (10 + i % 5 * 5)).toFixed(1) + 'px',
         ty: (Math.sin(a) * (10 + i % 5 * 5)).toFixed(1) + 'px',
-        /* 存毫秒数，真正用到时再乘放慢系数 —— 这里要是先拼成字符串，
-           以后调 PACE 就得重新解析时间。 */
         delayMs: Math.round(i / Math.max(1, found.length) * 340)
       };
     });
   }
 
-  /* ── 构造线 ────────────────────────────────────────────────────
-     整场演出里唯一"画"出来的东西。坐标不是拍百分比，而是去量页面
-     自己那些 1px 分隔线的位置 —— 这样第 ⑤ 幕落位之后，每一条线都能
-     在最终页面上找到对应，页面显出来时看不出接缝。
-
-     起笔时给一个固定的手绘偏移（下面 JIT 表），落位时再修正回真实
-     位置：先"随手起的稿"，后"对齐到版式"，落位才有意义。 */
-
-  /* 每条线量什么：h 横线 / v 竖线，side 是量哪条边 */
+  /* ── 第②幕量什么线：h 横线 / v 竖线，side 是量哪条边 ──────────
+     构造线仍然照着页面真实的 1px 分隔线画（观众看到的是"版式被
+     画出来"），但它们不再是落点 —— 每段线的归宿是画里的流场格子。 */
   var LINE_PLAN = [
     { sel: '.masthead',          side: 'bottom', kind: 'h' },
     { sel: '.hero',              side: 'bottom', kind: 'h' },
     { sel: '.section-label',     side: 'bottom', kind: 'h' },
-    /* 列表页的文章行就是它的行分隔线，取两行；个人页没有 #list，自动跳过 */
     { sel: '#list .card',        side: 'bottom', kind: 'h', all: 2 },
     { sel: '.widget--box',       side: 'top',    kind: 'h' },
     { sel: '.widget--box',       side: 'bottom', kind: 'h' },
@@ -201,7 +198,7 @@
     { sel: '.hero-meta',         side: 'left',   kind: 'v' }
   ];
   var MAX_H = 5, MAX_V = 3;
-  /* 起笔偏移：横向多给一点，竖向少量；固定表 → 每次重播画的是同一张稿 */
+  /* 起笔偏移：固定表 → 每次重播画的是同一张稿 */
   var JIT = [[-13, 8], [12, -7], [-9, -10], [15, 7], [-11, 11],
              [9, 9], [14, -8], [-7, -7], [10, 10]];
 
@@ -209,8 +206,6 @@
     var r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return null;
     var s;
-    /* 边框占 [bottom-1, bottom]，所以线的中心线在 bottom-.5 —— 取整
-       会在 1.5 倍缩放的手机上偏出小半像素，落位就"差一点点"。 */
     if (side === 'bottom' || side === 'top') {
       var y = side === 'bottom' ? r.bottom - .5 : r.top + .5;
       var x1 = Math.max(0, r.left), x2 = Math.min(W, r.right);
@@ -226,7 +221,7 @@
   }
 
   function collectLines(W, H) {
-    var hs = [], vs = [], owners = [];
+    var hs = [], vs = [];
     LINE_PLAN.forEach(function (spec) {
       if (spec.kind === 'h' && hs.length >= MAX_H) return;
       if (spec.kind === 'v' && vs.length >= MAX_V) return;
@@ -239,31 +234,25 @@
         var s = segOf(el, spec.side, W, H);
         if (!s) continue;
         var pool = s.kind === 'h' ? hs : vs;
-        /* 同一条边可能被两个选择器量到（sidebar 左边 / 卡片左边），去重 */
         if (pool.some(function (o) {
           return Math.abs(o.y1 - s.y1) < 4 && Math.abs(o.x1 - s.x1) < 4 &&
                  Math.abs(o.x2 - s.x2) < 40;
         })) continue;
-        s.el = el;
-        s.side = spec.side;
         pool.push(s);
-        owners.push(el);
       }
     });
     hs.sort(function (a, b) { return a.y1 - b.y1; });
     vs.sort(function (a, b) { return a.x1 - b.x1; });
-    return { segs: hs.concat(vs), owners: owners };
+    return hs.concat(vs);
   }
 
   function chunkCount(len) {
     return len > 900 ? 4 : len > 520 ? 3 : 2;
   }
 
-  /* 一个圆拆成 4 段弧 —— 画的时候像笔顺着涡心绕一圈，
-     断线之后这 4 段各自绕涡心转，最后并回原来的环。
-     sweep 恒为 1：屏幕坐标是 y 向下，角度递增在视觉上就是顺时针；
-     之前按涡旋方向写 0，结果四段弧全部向内凹，圆圈被画成了四角星。
-     涡旋方向只用来决定这四段的先后顺序（反着排 = 逆时针落笔）。 */
+  /* 种子圆拆成 4 段弧 —— 画的时候像笔顺着涡心绕一圈。
+     sweep 恒为 1：屏幕坐标 y 向下，角度递增视觉上就是顺时针；
+     涡旋方向只决定四段的先后顺序。 */
   function arcsOf(cx, cy, r, dir) {
     var out = [], i;
     for (i = 0; i < 4; i++) {
@@ -274,40 +263,123 @@
         d: 'M' + x0.toFixed(1) + ' ' + y0.toFixed(1) +
            'A' + r.toFixed(1) + ' ' + r.toFixed(1) + ' 0 0 1 ' +
            x1.toFixed(1) + ' ' + y1.toFixed(1),
-        len: r * Math.PI / 2,
-        p0: { x: x0, y: y0 },
-        t0: { x: x0, y: y0 },
-        t1: { x: x1, y: y1 }
+        len: r * Math.PI / 2
       });
     }
     return dir < 0 ? out.reverse() : out;
   }
 
-  /* 组装：建 SVG、按排期写延迟、按最近涡心算绕行角度与落位位移。
-     全部一次性算完写进 CSS 变量，之后每帧不碰任何属性。 */
-  function buildGuide() {
-    var C = geo.comp;
-    /* viewBox 必须取自这层 SVG 自己的盒子，而不是 geo.W/H：手机上
-       window.innerHeight 和 position:fixed 元素的盒子高度会差几像素，
-       默认的 xMidYMid meet 会把整层等比缩放再居中 —— 线看着好好的，
-       落位却整体偏 1~3px。盒子量出来再定 viewBox，1 单位就是 1px。 */
-    var svgEarly = SC.svg('svg', { 'class': 'intro-guide', 'aria-hidden': 'true' });
-    document.body.appendChild(svgEarly);
-    var box = svgEarly.getBoundingClientRect();
+  /* ── 颜料粒子层 ────────────────────────────────────────────────
+     geo.dabs 是 starry-canvas 构建期逐笔记录的清单：
+       {x,y,a(流向角),l(长度),k(墨),t(档),d(路径串),g(区域),
+        vx,vy(所属涡心),ri(圈层),si(星号)}
+     分区规则：
+       g=star        → 每颗星一个 <g>，从月沿切线抛出、挂位、逐圈点火
+       g=moon        → 盘面按象限、光晕按半径带，绕月心旋入（月完善自身）
+       g=ring:*      → 每个旋转点 (圈层×扇区) 绕种子旋入（涡环自纺）
+       其余(天空/云带/远山/村庄) → 网格格子：多数从月沿甩出（B 路），
+                       少数分配给构造线段（A 路的落点） */
+  function buildPaint() {
+    var C = geo.comp, M = C.M, dabs = geo.dabs || [];
+    var INKc = SC.inks, TI = SC.tiers, mob = SC.mobile;
+    var COLS = mob ? 4 : 7, ROWS = mob ? 3 : 5, KEEP = mob ? 3 : 4;
+    var WAVE = mob ? ENG.waveSpanM : ENG.waveSpan;
+    var registry = [];
+    var counts = { cellUnits: 0, cells: 0, moon: 0, rings: 0, stars: 0, chunks: 0 };
+
+    /* 与旧 guide 相同的"钉盒"套路：量出的像素定 viewBox，1 单位 = 1px。
+       手机上地址栏收放会让视口高度变化，盒子一变而 viewBox 不变，
+       整层就会被 meet 等比缩放，落点整体偏移。 */
+    var svgL = SC.svg('svg', { 'class': 'intro-paint', 'aria-hidden': 'true' });
+    document.body.appendChild(svgL);
+    var box = svgL.getBoundingClientRect();
     var W = Math.round(box.width) || geo.W, H = Math.round(box.height) || geo.H;
-    /* 把这一层的盒子按量到的像素钉死：手机上地址栏收放会让视口高度变，
-       盒子一变、viewBox 不变，整层就被 meet 等比缩放（实测偏 0.6%，
-       落到 400px 处就是 2.4px）。钉死之后 1 单位恒等于 1px。 */
-    svgEarly.style.width = W + 'px';
-    svgEarly.style.height = H + 'px';
-    svgEarly.style.right = 'auto';
-    svgEarly.style.bottom = 'auto';
-    svgEarly.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svgL.style.width = W + 'px';
+    svgL.style.height = H + 'px';
+    svgL.style.right = 'auto';
+    svgL.style.bottom = 'auto';
+    svgL.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+
+    /* 一个单元 = 同 (墨×档) 的一束笔。每个格子/扇区只保 KEEP 个桶，
+       其余并进宽度最接近的桶 —— 否则单元数爆炸，合成层装不下。 */
+    function groupDabs(list, keyFn, cap) {
+      var map = {};
+      list.forEach(function (d) {
+        var key = keyFn(d);
+        var slot = map[key] = map[key] || { key: key, buckets: {} };
+        var bk = d.k * 4 + d.t;
+        (slot.buckets[bk] = slot.buckets[bk] || []).push(d);
+      });
+      return Object.keys(map).map(function (key) {
+        var slot = map[key];
+        var arr = Object.keys(slot.buckets).map(function (bk) {
+          return { k: Math.floor(bk / 4), t: bk % 4,
+                   d: slot.buckets[bk], n: slot.buckets[bk].length };
+        }).sort(function (a, b) { return b.n - a.n; });
+        var kept = arr.slice(0, cap);
+        arr.slice(cap).forEach(function (b) {
+          var best = null, bd = 1e9;
+          kept.forEach(function (h) {
+            var dd = Math.abs(INKc[h.k].w * TI[h.t].k - INKc[b.k].w * TI[b.t].k);
+            if (dd < bd) { bd = dd; best = h; }
+          });
+          if (best) best.d = best.d.concat(b.d);
+        });
+        return { key: key, kept: kept };
+      });
+    }
+
+    function mkUnit(dlist, cls) {
+      var I = INKc[dlist[0].k];
+      var dstr = '';
+      dlist.forEach(function (d) { dstr += d.d; });
+      var p = SC.svg('path', {
+        d: dstr, fill: 'none', stroke: I.c,
+        'stroke-width': (I.w * TI[dlist[0].t].k).toFixed(2), 'class': cls
+      });
+      p.style.setProperty('--op', I.o.toFixed(2));
+      return p;
+    }
+
+    /* 验收登记：期望中心 = 构建期 bbox 中心（单元末帧都是 identity），
+       期望透明度 = 墨色的不透明度。verify() 在第⑤幕后逐一对账。 */
+    function reg(el, kind, ex, ey) {
+      var x = ex, y = ey, op = null;
+      try {
+        var bb = el.getBBox();
+        if (x == null) { x = bb.x + bb.width / 2; y = bb.y + bb.height / 2; }
+      } catch (e) { /* 无 bbox 的元素跳过位置对账 */ }
+      var opv = el.style.getPropertyValue('--op');
+      if (opv) op = parseFloat(opv);
+      registry.push({ el: el, kind: kind, x: x, y: y, op: op });
+    }
+
+    /* ── 1) 环境颜料（天空/云带/远山/村庄）按格子分组 ─────────── */
+    var ambient = dabs.filter(function (d) {
+      return d.g !== 'moon' && d.g !== 'star' && d.g.indexOf('ring') !== 0;
+    });
+    var cellGroups = groupDabs(ambient, function (d) {
+      var kx = clamp(Math.floor(d.x / W * COLS), 0, COLS - 1);
+      var ky = clamp(Math.floor(d.y / H * ROWS), 0, ROWS - 1);
+      return kx + '_' + ky;
+    }, KEEP);
+    var maxDist = 1;
+    cellGroups.forEach(function (cg) {
+      counts.cells++;
+      var sx = 0, sy = 0, n = 0;
+      cg.kept.forEach(function (b) {
+        b.d.forEach(function (d) { sx += d.x; sy += d.y; n++; });
+      });
+      cg.cx = sx / n; cg.cy = sy / n;
+      cg.dist = Math.hypot(cg.cx - M.x, cg.cy - M.y);
+      if (cg.dist > maxDist) maxDist = cg.dist;
+    });
+
+    /* ── 2) 第②幕的画：横 → 竖 → 两个种子圆 → 橙色月圆收笔 ───── */
     var got = collectLines(W, H);
     var items = [], j = 0;
-
-    got.segs.forEach(function (s) {
-      var len = Math.sqrt(Math.pow(s.x2 - s.x1, 2) + Math.pow(s.y2 - s.y1, 2));
+    got.forEach(function (s) {
+      var len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
       var n = chunkCount(len), k;
       var jit = JIT[j % JIT.length];
       var ox = s.kind === 'v' ? Math.round(jit[0] * .5) : jit[0];
@@ -317,168 +389,363 @@
         var t0 = k / n, t1 = (k + 1) / n;
         chunks.push({
           p0: { x: s.x1 + (s.x2 - s.x1) * t0 + ox, y: s.y1 + (s.y2 - s.y1) * t0 + oy },
-          p1: { x: s.x1 + (s.x2 - s.x1) * t1 + ox, y: s.y1 + (s.y2 - s.y1) * t1 + oy },
-          t0: { x: s.x1 + (s.x2 - s.x1) * t0, y: s.y1 + (s.y2 - s.y1) * t0 },
-          t1: { x: s.x1 + (s.x2 - s.x1) * t1, y: s.y1 + (s.y2 - s.y1) * t1 }
+          p1: { x: s.x1 + (s.x2 - s.x1) * t1 + ox, y: s.y1 + (s.y2 - s.y1) * t1 + oy }
         });
       }
-      chunks.forEach(function (c, ci) { c.a = ci / n; c.b = (ci + 1) / n; });
-      items.push({
-        chunks: chunks, seg: s, ox: ox, oy: oy,
-        w: s.kind === 'h' ? 1.5 : 1.4, kind: s.kind, j: j++
-      });
+      items.push({ chunks: chunks, w: s.kind === 'h' ? 1.6 : 1.5, kind: s.kind });
     });
-
-    /* 最后两个圆：绕主涡 / 副涡各画一圈 */
-    [C.A, C.B].forEach(function (v, idx) {
-      var r = v.r * .34;
-      var ox = idx ? -7 : 6, oy = idx ? 6 : -5;
-      items.push({
-        chunks: arcsOf(v.x + ox, v.y + oy, r + 3, v.dir),
-        cx: v.x, cy: v.y, w: 1.3, kind: 'o', j: j++, round: true
-      });
+    /* 种子圆：主涡 / 副涡各一圈 —— 旋转点的本体，涡环绕它纺出 */
+    [C.A, C.B].forEach(function (v) {
+      items.push({ chunks: arcsOf(v.x, v.y, v.r * .34, v.dir),
+                   w: 2.4, kind: 'o', seedV: v });
     });
+    /* 月心种子：橙色实心圆，第②幕收笔 */
+    items.push({ moonSeed: true });
 
-    var svg = svgEarly;
-    var groups = [], airList = [], order = 0;
-    var airBase = AIR_BASE * pace;
+    var sketchMs = Math.round((items.length - 1) * INK * CHAIN + INK + TAIL);
+    var moonStart = (items.length - 1) * INK * CHAIN;
+    TIMING.sketch = sketchMs;
+    var rotateStart = TIMING.quiet + sketchMs + 60;   /* 点火时刻（单位 ms） */
 
-    items.forEach(function (it, li) {
-      var lineStart = li * INK * CHAIN * pace;
-      var per = INK * pace / it.chunks.length;
-      /* 绕哪个中心：线段中点离 A / B 谁近就绕谁 */
-      var mid = it.chunks[Math.floor(it.chunks.length / 2)].p0;
-      var va = Math.sqrt(Math.pow(mid.x - C.A.x, 2) + Math.pow(mid.y - C.A.y, 2));
-      var vb = Math.sqrt(Math.pow(mid.x - C.B.x, 2) + Math.pow(mid.y - C.B.y, 2));
-      var pivot = it.round ? it : (va <= vb ? C.A : C.B);
-      var ax = it.round ? it.cx : pivot.x;
-      var ay = it.round ? it.cy : pivot.y;
-      var dirSign = (pivot.dir || 1) < 0 ? -1 : 1;
-
-      it.chunks.forEach(function (ch, k) {
-        var g = SC.svg('g', { 'class': 'gk' });
-        var p = SC.svg('path', {
-          d: it.round ? ch.d : ('M' + ch.p0.x.toFixed(1) + ' ' + ch.p0.y.toFixed(1) +
-                                'L' + ch.p1.x.toFixed(1) + ' ' + ch.p1.y.toFixed(1)),
-          'stroke-width': it.w, 'class': 'gk-p'
-        });
-        g.appendChild(p);
-
-        /* 起笔：dasharray = 整段长度，dashoffset 从 len 收到 0 */
-        var len = it.round ? ch.len :
-          Math.sqrt(Math.pow(ch.p1.x - ch.p0.x, 2) + Math.pow(ch.p1.y - ch.p0.y, 2));
-        p.style.setProperty('--len', len.toFixed(1));
-        p.style.setProperty('--ink-dur', per.toFixed(0) + 'ms');
-        p.style.setProperty('--ink-delay', (lineStart + k * per).toFixed(0) + 'ms');
-
-        /* 绕行 + 落位：角度至少半圈（185°），每段再错开一点 → 断线 */
-        var spin = dirSign * (185 + k * 9 + (li % 3) * 7);
-        var dx = ch.t0.x - ch.p0.x;
-        var dy = ch.t0.y - ch.p0.y;
-        g.style.setProperty('--ax', ax.toFixed(1) + 'px');
-        g.style.setProperty('--ay', ay.toFixed(1) + 'px');
-        g.style.setProperty('--spin', spin.toFixed(0) + 'deg');
-        g.style.setProperty('--dx', dx.toFixed(1) + 'px');
-        g.style.setProperty('--dy', dy.toFixed(1) + 'px');
-        g.style.setProperty('--air-dur', airBase.toFixed(0) + 'ms');
-        g.style.setProperty('--air-delay', (order * AIR_STAGGER * pace).toFixed(0) + 'ms');
-        order++;
-
-        svg.appendChild(g);
-        groups.push(g);
-        airList.push({ g: g, p: p, seg: it.round ? null : it.seg,
-                       ox: it.ox, oy: it.oy, a: ch.a, b: ch.b,
-                       kind: it.round ? 'o' : it.kind });
+    /* 构造线段 → 流场格子的分配（贪心就近、不重复占格） */
+    var assignedCell = {}, aCells = {}, nChunks = 0;
+    function takeCell(x, y) {
+      var best = null, bd = 1e9, bestAny = null, bdAny = 1e9;
+      cellGroups.forEach(function (cg) {
+        var dd = (cg.cx - x) * (cg.cx - x) + (cg.cy - y) * (cg.cy - y);
+        if (dd < bdAny) { bdAny = dd; bestAny = cg; }
+        if (!assignedCell[cg.key] && dd < bd) { bd = dd; best = cg; }
       });
-    });
-
-    /* 落位前重测一次：列表页的文章是接口回来才渲染的，量坐标时页面
-       可能还没长成最终高度（实测页脚会往下跳 90px），侧栏内部的排版
-       也会再流一次。这里把每一段按新坐标重写一遍 d 并重算位移 ——
-       一次 setAttribute 发生在幕边界上，不是逐帧写入。
-
-       重写 d 是必须的：整段长度会变（实测一条 262px 的框线变成 251px），
-       只改位移的话最后一段会戳出去十几像素，落位就不算"重合"了。 */
-    function rebind() {
-      var seen = [];
-      airList.forEach(function (a) {
-        if (!a.seg) return;
-        if (seen.indexOf(a.seg) < 0) {
-          seen.push(a.seg);
-          var now = segOf(a.seg.el, a.seg.side, W, H);
-          if (now) { a.seg.x1 = now.x1; a.seg.y1 = now.y1; a.seg.x2 = now.x2; a.seg.y2 = now.y2; }
-        }
-        var dx1 = a.seg.x2 - a.seg.x1, dy1 = a.seg.y2 - a.seg.y1;
-        var x1 = a.seg.x1 + dx1 * a.a + a.ox, y1 = a.seg.y1 + dy1 * a.a + a.oy;
-        var x2 = a.seg.x1 + dx1 * a.b + a.ox, y2 = a.seg.y1 + dy1 * a.b + a.oy;
-        a.p.setAttribute('d', 'M' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
-                              'L' + x2.toFixed(1) + ' ' + y2.toFixed(1));
-        a.p.style.setProperty('--len',
-          Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)).toFixed(1));
-        /* 重写之后，落位只剩"手绘偏移"这一点距离要修 */
-        a.g.style.setProperty('--dx', (-a.ox).toFixed(1) + 'px');
-        a.g.style.setProperty('--dy', (-a.oy).toFixed(1) + 'px');
-      });
+      var cg = best || bestAny;
+      assignedCell[cg.key] = true;
+      return cg;
+    }
+    function pivotFor(x, y) {
+      var da = (x - C.A.x) * (x - C.A.x) + (y - C.A.y) * (y - C.A.y);
+      var db = (x - C.B.x) * (x - C.B.x) + (y - C.B.y) * (y - C.B.y);
+      return da <= db ? C.A : C.B;
     }
 
-    return {
-      el: svg, groups: groups, rebind: rebind,
-      /* 草图幕的时长：最后一条起笔 + 它自己画完 + 一点余量 */
-      ms: Math.round((items.length - 1) * INK * CHAIN + INK + TAIL),
-      /* 断线幕的时长必须盖住最后一段落位，否则页面会在半路亮起来 */
-      /* +140 的余量：末段刚刚落位就把页面推上来，会有 1~3px 的"还没站稳" */
-      airMs: Math.round(AIR_BASE + AIR_STAGGER * Math.max(0, order - 1) + 140),
-      owners: got.owners, segs: got.segs, targets: airList
-    };
+    /* ── 3) 第②幕 DOM：构造线段 + 种子 ────────────────────────── */
+    var cellW2 = W / COLS * .85, cellH2 = H / ROWS * .85;
+    items.forEach(function (it, li) {
+      if (it.moonSeed) return;                       /* 收笔，循环外单独建 */
+      var lineStart = li * INK * CHAIN;
+      var per = INK / it.chunks.length;
+
+      it.chunks.forEach(function (ch, k) {
+        var isSeed = it.kind === 'o';
+        var dStr, len;
+        if (isSeed) { dStr = ch.d; len = ch.len; }
+        else {
+          dStr = 'M' + ch.p0.x.toFixed(1) + ' ' + ch.p0.y.toFixed(1) +
+                 'L' + ch.p1.x.toFixed(1) + ' ' + ch.p1.y.toFixed(1);
+          len = Math.hypot(ch.p1.x - ch.p0.x, ch.p1.y - ch.p0.y);
+        }
+        var cxm, cym;
+        if (isSeed) { cxm = it.seedV.x; cym = it.seedV.y; }
+        else { cxm = (ch.p0.x + ch.p1.x) / 2; cym = (ch.p0.y + ch.p1.y) / 2; }
+        var g = SC.svg('g', { 'class': 'gk' });
+        var gi = SC.svg('g', { 'class': 'gk-i' });
+        var color, domW = 2;
+        var cg = null;
+
+        if (isSeed) {
+          color = INKc[2].c;                          /* 钴蓝：涡环的主墨 */
+        } else {
+          cg = takeCell(cxm, cym);
+          var dom = cg.kept[0];
+          color = INKc[dom.k].c;                      /* 出生即带归宿的墨色 */
+          domW = INKc[dom.k].w * TI[dom.t].k;
+        }
+
+        var p = SC.svg('path', {
+          d: dStr, fill: 'none', stroke: color,
+          'stroke-width': it.w, 'class': 'ln-p'
+        });
+        p.style.setProperty('--len', len.toFixed(1));
+        p.style.setProperty('--ink-dur', (per * pace).toFixed(0) + 'ms');
+        p.style.setProperty('--ink-delay', ((lineStart + k * per) * pace).toFixed(0) + 'ms');
+        gi.appendChild(p);
+        g.appendChild(gi);
+
+        if (isSeed) {
+          /* 种子不飞行：留在原地转，涡环纺完后淡出让位 */
+          var v = it.seedV;
+          var order = v.id === 'A' ? 0 : 1;
+          var vEnd = ENG.vortexStart + order * ENG.vortexSpread + ENG.ringGap +
+                     2 * ENG.sectorSpread + ENG.vortexDur + 180;
+          g.setAttribute('class', 'gk seed-g');
+          g.style.setProperty('--fd-delay', ((rotateStart + vEnd) * pace).toFixed(0) + 'ms');
+          counts.chunks++;
+        } else {
+          /* A 路：公转 ≥半圈 → 升档成颜料 → 甩落到自己的格子 */
+          var ci = nChunks++;
+          counts.chunks++;
+          var flStart = rotateStart + ENG.chunkStart + ci * ENG.chunkStag;
+          var pivot = pivotFor(cxm, cym);
+          var dirSign = pivot.dir < 0 ? -1 : 1;
+          g.classList.add('gk-orbit');
+          g.style.setProperty('--ax', pivot.x.toFixed(1) + 'px');
+          g.style.setProperty('--ay', pivot.y.toFixed(1) + 'px');
+          g.style.setProperty('--spin', (dirSign * (195 + (ci % 5) * 11)).toFixed(0) + 'deg');
+          g.style.setProperty('--fl-dur', (ENG.chunkDur * pace).toFixed(0) + 'ms');
+          g.style.setProperty('--fl-delay', (flStart * pace).toFixed(0) + 'ms');
+          gi.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+            cxm.toFixed(1) + 'px ' + cym.toFixed(1) + 'px');
+          gi.style.setProperty('--dx', (cg.cx - cxm).toFixed(1) + 'px');
+          gi.style.setProperty('--dy', (cg.cy - cym).toFixed(1) + 'px');
+          var sx2, sy2;
+          if (it.kind === 'h') {
+            sx2 = clamp(cellW2 / len, .25, 1);
+            sy2 = clamp(domW / it.w, 1.2, 3.4);
+          } else {
+            sy2 = clamp(cellH2 / len, .25, 1);
+            sx2 = clamp(domW / it.w, 1.2, 3.4);
+          }
+          gi.style.setProperty('--sx', sx2.toFixed(2));
+          gi.style.setProperty('--sy', sy2.toFixed(2));
+          gi.style.setProperty('--gone-delay', ((flStart + ENG.chunkDur - 40) * pace).toFixed(0) + 'ms');
+          p.style.setProperty('--tw', domW.toFixed(2));
+          p.style.setProperty('--thick-delay', ((flStart + ENG.chunkDur * .38) * pace).toFixed(0) + 'ms');
+          /* 这个格子的颜料等线落地后原地显影 */
+          var cEnd = flStart + ENG.chunkDur;
+          if (!aCells[cg.key] || aCells[cg.key] < cEnd) aCells[cg.key] = cEnd;
+          reg(g, 'chunk', cg.cx, cg.cy);
+        }
+        svgL.appendChild(g);
+      });
+    });
+
+    /* 月心种子：橙色实心圆（第②幕收笔）→ 点火后旋转中长成月盘 */
+      var mSeed = SC.svg('g', { 'class': 'seed-moon' });
+      mSeed.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+        M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
+      mSeed.style.setProperty('--fill-delay', ((moonStart + INK + 40) * pace).toFixed(0) + 'ms');
+      mSeed.style.animation =
+        'seed-spin 9.5s linear ' + (rotateStart * pace).toFixed(0) + 'ms infinite,' +
+        'seed-fade .7s ease ' + ((rotateStart + ENG.moonSeedFade) * pace).toFixed(0) + 'ms both';
+      var mr = M.r * .62;
+      var outline = SC.svg('circle', { cx: M.x.toFixed(1), cy: M.y.toFixed(1),
+        r: mr.toFixed(1), pathLength: 100, fill: 'none',
+        stroke: INKc[6].c, 'stroke-width': 2.6, 'class': 'ln-p' });
+      outline.style.setProperty('--len', '100');
+      outline.style.setProperty('--ink-dur', (INK * pace).toFixed(0) + 'ms');
+      outline.style.setProperty('--ink-delay', (moonStart * pace).toFixed(0) + 'ms');
+      mSeed.appendChild(outline);
+      mSeed.appendChild(SC.svg('circle', { cx: M.x.toFixed(1), cy: M.y.toFixed(1),
+        r: mr.toFixed(1), fill: INKc[6].c, 'class': 'seed-moon-fill' }));
+      [0.9, 3.6].forEach(function (a0) {
+        var a1 = a0 + 1.5, rr2 = M.r * .4;
+        mSeed.appendChild(SC.svg('path', {
+          d: 'M' + (M.x + Math.cos(a0) * rr2).toFixed(1) + ' ' + (M.y + Math.sin(a0) * rr2).toFixed(1) +
+             'A' + rr2.toFixed(1) + ' ' + rr2.toFixed(1) + ' 0 0 1 ' +
+             (M.x + Math.cos(a1) * rr2).toFixed(1) + ' ' + (M.y + Math.sin(a1) * rr2).toFixed(1),
+          fill: 'none', stroke: '#e0a53e', 'stroke-width': 3.4, 'class': 'seed-mark'
+        }));
+      });
+      svgL.appendChild(mSeed);
+
+    /* ── 4) 月：盘面象限 + 光晕带，绕月心旋入（月完善自身）──────── */
+    var moonD = dabs.filter(function (d) { return d.g === 'moon'; });
+    groupDabs(moonD, function (d) {
+      if (d.ri === 0) {
+        var ang = Math.atan2(d.y - M.y, d.x - M.x);
+        return 'd' + (Math.floor((ang + Math.PI) / (Math.PI / 2)) % 4);
+      }
+      var r = Math.hypot(d.x - M.x, d.y - M.y) / M.r;
+      return 'h' + (r < .84 ? 0 : r < .97 ? 1 : 2);
+    }, mob ? 4 : 5).forEach(function (g) {
+      var isDisk = g.key.charAt(0) === 'd';
+      var idx = +g.key.charAt(1);
+      g.kept.forEach(function (b, u) {
+        var el = mkUnit(b.d, 'pk pk-spin');
+        el.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+          M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
+        var hsh = hashN(b.d.length * 97 + idx * 31 + (isDisk ? 5 : 9));
+        el.style.setProperty('--a0', (-(60 + hsh * 130)).toFixed(0) + 'deg');
+        el.style.setProperty('--sp-dur', ((isDisk ? ENG.diskDur : ENG.haloDur) * pace).toFixed(0) + 'ms');
+        var dl = isDisk ? 120 + idx * ENG.diskSpread
+                        : ENG.haloStart + idx * ENG.haloSpread;
+        el.style.setProperty('--sp-delay', ((rotateStart + dl + u * 45) * pace).toFixed(0) + 'ms');
+        svgL.appendChild(el);
+        reg(el, isDisk ? 'moon-disk' : 'moon-halo');
+        counts.moon++;
+      });
+    });
+
+    /* ── 5) 涡环：绕各自的种子/中心旋入（旋转点完善自身）────────── */
+    var ringD = dabs.filter(function (d) { return d.g.indexOf('ring') === 0; });
+    var vOrder = { A: 0, B: 1, S: 2 };
+    groupDabs(ringD, function (d) {
+      var ang = Math.atan2(d.y - d.vy, d.x - d.vx);
+      var sec = Math.floor((ang + Math.PI) / (2 * Math.PI / 3)) % 3;
+      return d.g + '#' + d.ri + '#' + sec;
+    }, mob ? 3 : 5).forEach(function (g) {
+      var parts = g.key.split('#');
+      var vid = parts[0].split(':')[1];
+      var ri = +parts[1], sec = +parts[2];
+      var v = vid === 'A' ? C.A : vid === 'B' ? C.B : C.S;
+      var dirSign = v.dir < 0 ? -1 : 1;
+      g.kept.forEach(function (b, u) {
+        var el = mkUnit(b.d, 'pk pk-spin');
+        el.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+          v.x.toFixed(1) + 'px ' + v.y.toFixed(1) + 'px');
+        var hsh = hashN(b.d.length * 53 + sec * 29 + ri * 13);
+        el.style.setProperty('--a0', (-(60 + hsh * 110) * dirSign).toFixed(0) + 'deg');
+        el.style.setProperty('--sp-dur', (ENG.vortexDur * pace).toFixed(0) + 'ms');
+        var dl = ENG.vortexStart + (vOrder[vid] || 0) * ENG.vortexSpread +
+                 (ri ? ENG.ringGap : 0) + sec * ENG.sectorSpread;
+        el.style.setProperty('--sp-delay', ((rotateStart + dl + u * 45) * pace).toFixed(0) + 'ms');
+        svgL.appendChild(el);
+        reg(el, 'ring');
+        counts.rings++;
+      });
+    });
+
+    /* ── 6) 星：从月沿切线抛出 → 挂位 → 逐圈点火 ────────────────── */
+    var starMap = {};
+    dabs.forEach(function (d) {
+      if (d.g === 'star') (starMap[d.si] = starMap[d.si] || []).push(d);
+    });
+    Object.keys(starMap).forEach(function (siK) {
+      var si = +siK, list = starMap[siK];
+      var s = C.stars[si];
+      if (!s) return;
+      counts.stars++;
+      var g = SC.svg('g', { 'class': 'pk pk-fly' });
+      g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+        M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
+      g.style.setProperty('--op', '1');
+      var a = Math.atan2(s.y - M.y, s.x - M.x);
+      var dist = Math.hypot(s.x - M.x, s.y - M.y);
+      var r0 = M.r * 1.06, r1 = Math.max(dist * .94, 40);
+      var hsh = hashN(si * 7919 + 13);
+      g.style.setProperty('--a0', (-(55 + hsh * 70)).toFixed(0) + 'deg');
+      g.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - s.x).toFixed(1) + 'px');
+      g.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - s.y).toFixed(1) + 'px');
+      g.style.setProperty('--vx1', (M.x + r1 * Math.cos(a) - s.x).toFixed(1) + 'px');
+      g.style.setProperty('--vy1', (M.y + r1 * Math.sin(a) - s.y).toFixed(1) + 'px');
+      var land = rotateStart + ENG.starStart + si * ENG.starStag + ENG.starDur;
+      g.style.setProperty('--fl-dur', (ENG.starDur * pace).toFixed(0) + 'ms');
+      g.style.setProperty('--fl-delay', ((rotateStart + ENG.starStart + si * ENG.starStag) * pace).toFixed(0) + 'ms');
+      /* 核先亮，两圈晕环落位后逐圈点火 */
+      var bands = [[], [], []];
+      list.forEach(function (d) {
+        var r = Math.hypot(d.x - s.x, d.y - s.y) / s.r;
+        bands[r < .38 ? 0 : r < .72 ? 1 : 2].push(d);
+      });
+      for (var bd = 0; bd < 3; bd++) {
+        if (!bands[bd].length) continue;
+        groupDabs(bands[bd], function () { return 'b'; }, mob ? 3 : 4)
+          .forEach(function (bg) {
+            bg.kept.forEach(function (b) {
+              var el = mkUnit(b.d, 'star-part');
+              el.style.setProperty('--ig-delay', ((land + (bd === 0 ? -160 : (bd - 1) * 150)) * pace).toFixed(0) + 'ms');
+              g.appendChild(el);
+            });
+          });
+      }
+      svgL.appendChild(g);
+      reg(g, 'star');
+    });
+
+    /* ── 7) 格子颜料：A 路的归宿原地显影，其余从月沿甩出（B 路）── */
+    cellGroups.forEach(function (cg) {
+      var aEnd = aCells[cg.key];
+      cg.kept.forEach(function (b, u) {
+        if (aEnd != null) {
+          /* A 路：等构造线段落进格子后原地显影（同位同色交叉淡替） */
+          var el = mkUnit(b.d, 'pk pk-a');
+          el.style.setProperty('--in-delay', ((aEnd - 140 + u * 55) * pace).toFixed(0) + 'ms');
+          el.style.setProperty('--in-dur', (280 * pace).toFixed(0) + 'ms');
+          svgL.appendChild(el);
+          reg(el, 'cell-a');
+          counts.cellUnits++;
+        } else {
+          /* B 路：出生点压在月沿上，螺旋甩向落点，由近及远的生长波 */
+          var el = mkUnit(b.d, 'pk pk-fly');
+          el.setAttribute('style', 'transform-box:view-box;transform-origin:' +
+            M.x.toFixed(1) + 'px ' + M.y.toFixed(1) + 'px');
+          var a = Math.atan2(cg.cy - M.y, cg.cx - M.x);
+          var dist = cg.dist;
+          var r0 = M.r * 1.04, r1 = Math.max(dist * .96, 40);
+          var hsh = hashN(cg.kx * 131 + cg.ky * 77 + u * 17 + 3);
+          el.style.setProperty('--a0', (-(35 + hsh * 55)).toFixed(0) + 'deg');
+          el.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - cg.cx).toFixed(1) + 'px');
+          el.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - cg.cy).toFixed(1) + 'px');
+          el.style.setProperty('--vx1', (M.x + r1 * Math.cos(a) - cg.cx).toFixed(1) + 'px');
+          el.style.setProperty('--vy1', (M.y + r1 * Math.sin(a) - cg.cy).toFixed(1) + 'px');
+          var dd2 = clamp(520 + dist * .38, 520, 1350);
+          var dl = ENG.waveStart + (dist / maxDist) * WAVE + hsh * 120 + u * 40;
+          el.style.setProperty('--fl-dur', (dd2 * pace).toFixed(0) + 'ms');
+          el.style.setProperty('--fl-delay', ((rotateStart + dl) * pace).toFixed(0) + 'ms');
+          svgL.appendChild(el);
+          reg(el, 'cell-b');
+          counts.cellUnits++;
+        }
+      });
+    });
+
+    /* ── 8) 第④幕幕长 = 最晚收尾的轨道 ─────────────────────────── */
+    var starEnd = ENG.starStart + 10 * ENG.starStag + ENG.starDur + 400;
+    var waveEnd = ENG.waveStart + WAVE + 1350 + 160;
+    var chunkEnd = ENG.chunkStart + Math.max(0, nChunks - 1) * ENG.chunkStag +
+                   ENG.chunkDur + 260;
+    var vortexEnd = ENG.vortexStart + 2 * ENG.vortexSpread + ENG.ringGap +
+                    2 * ENG.sectorSpread + ENG.vortexDur + 120;
+    var moonEnd = ENG.haloStart + 2 * ENG.haloSpread + ENG.haloDur + 120;
+    TIMING.paint = Math.round(Math.max(starEnd, waveEnd, chunkEnd, vortexEnd, moonEnd));
+
+    /* 验收对账：位置偏差 + 透明度 */
+    function verify() {
+      var bad = 0, worst = 0, at = null, opBad = 0;
+      registry.forEach(function (u, i) {
+        var r = u.el.getBoundingClientRect();
+        var dd = Math.hypot(r.left + r.width / 2 - u.x, r.top + r.height / 2 - u.y);
+        if (dd > 2.5) {
+          bad++;
+          if (dd > worst) { worst = dd; at = { i: i, k: u.kind, d: Math.round(dd * 10) / 10 }; }
+        }
+        if (u.op != null) {
+          var op = parseFloat(getComputedStyle(u.el).opacity);
+          if (!(op > u.op - .06)) opBad++;
+        }
+      });
+      return JSON.stringify({ total: registry.length, bad: bad,
+        worst: Math.round(worst * 10) / 10, at: at, opBad: opBad,
+        counts: counts });
+    }
+
+    return { el: svgL, verify: verify, counts: counts };
   }
 
   /* ── 幕切换：每幕只做一次写入 ───────────────────────────────── */
   function enter(n) {
     phase = n;
-    var C = geo.comp;
 
-    if (n === 1) {
-      /* ① 画板已经在 play() 里淡入，这里只是让夜色静一拍 */
-    } else if (n === 2) {
-      /* ② 构造线：每条线的起笔延迟在 buildGuide() 里就写死了，
-         这一幕只负责把画层停住，别再往纸上叠东西 */
-      geo.base.style.transition = '';
-      geo.rings.forEach(function (g) { g.style.transition = ''; });
+    if (n === 2) {
+      /* ② 构造线与种子的起笔排期全在 CSS 动画里，这里无需写入 */
     } else if (n === 3) {
-      /* ③ 油画显影：底纹铺上，各旋转点错峰跟上，月亮排在最后 ——
-         "把太阳画完"正好成为下一幕的引信。构造线留在最上层 */
-      geo.base.style.transition = 'opacity ' + dur(.85) + ' ease';
-      geo.base.style.opacity = '1';
-      geo.rings.forEach(function (g, i) {
-        var isMoon = g.getAttribute('data-v') === 'M';
-        var d = isMoon ? 560 : (i * 55);
-        g.style.transition = 'opacity ' + dur(.52) + ' ease ' + Math.round(d * pace) + 'ms';
-        g.style.opacity = '1';
-      });
+      /* ③ 月心点火：种子旋转的 delay 也写死在构建期，这里只记账 */
     } else if (n === 4) {
-      /* ④ 月心迸发：画里的月盘不动，只从盘沿甩出暖色厚笔 */
-      if (S3) {
-        burstFx = S3.burst({
-          x: C.M.x, y: C.M.y, r: C.M.r * .62,
-          W: geo.W, H: geo.H, count: SC.mobile ? 18 : 28
-        });
+      /* ④ 引擎流水线开跑：夜色从月心随生长波漫开（压在颜料下面，
+         纸上没画到的部分开始被夜空接管 —— 世界从这一幕就开始爆发） */
+      if (stage.flood) {
+        stage.flood.style.transition =
+          'transform ' + Math.round((TIMING.paint - 150) * pace) + 'ms linear,' +
+          'opacity ' + dur(.5) + ' ease';
+        stage.flood.classList.add('is-open');
       }
     } else if (n === 5) {
-      /* ⑤ 断线归位：整层加 is-air，每段开始"绕涡心 → 飞回落点"。
-         这一刻开始页面不再被遮，构造线自己会走到版式上去。 */
-      if (guide) { guide.rebind(); guide.el.classList.add('is-air'); }
-    } else if (n === 6) {
-      /* ⑥ 世界爆发：旋转点提速，夜空从月心向外铺满 */
-      root.classList.add('is-vortex');
-      if (stage.flood) stage.flood.classList.add('is-open');
-    } else if (n === 7) {
-      /* 收束：画板与夜盘一起退场，画层直接落在页面自己的夜色上 */
+      /* ⑤ 收束：画板退场，夜色 + 长成的画留在台上 */
       if (stage.paper) stage.paper.classList.add('is-fade');
-      if (stage.flood) stage.flood.classList.add('is-fade');
-      if (burstFx) burstFx.fade();
-    } else if (n === 8) {
-      /* ⑦ 主页显现：构造线正好压在各自那条边线上，一起淡掉换真边线 */
-      if (guide) guide.el.classList.add('is-fade');
+    } else if (n === 6) {
+      /* ⑥ 主页显现：粒子层与真画同位交叉淡替（内容逐像素同源），
+         页面元素带 Z 轴纵深错峰落位 */
+      geo.host.style.transition = 'opacity .45s ease';
+      geo.host.style.opacity = '1';
+      if (paint) paint.el.classList.add('is-swap');
       pageEls.forEach(function (el) {
         el.style.transition = 'opacity ' + dur(.5) + ' ease';
         el.style.opacity = '1';
@@ -502,12 +769,8 @@
     root.style.removeProperty('--intro-pace');
 
     if (geo) {
-      geo.base.style.transition = '';
-      geo.base.style.opacity = '';
-      geo.rings.forEach(function (g) {
-        g.style.transition = '';
-        g.style.opacity = '';
-      });
+      geo.host.style.transition = '';
+      geo.host.style.opacity = '';
     }
     revealNodes.forEach(function (r) {
       r.el.style.transition = '';
@@ -524,10 +787,9 @@
 
   /* ── 拆台：下一帧再摘节点，避免集中变更造成闪烁 ─────────────── */
   function teardown() {
-    if (burstFx) { burstFx.destroy(); burstFx = null; }
     requestAnimationFrame(function () {
-      if (guide && guide.el && guide.el.parentNode) guide.el.parentNode.removeChild(guide.el);
-      guide = null;
+      if (paint && paint.el && paint.el.parentNode) paint.el.parentNode.removeChild(paint.el);
+      paint = null;
       ['paper', 'flood', 'ui'].forEach(function (k) {
         if (stage && stage[k] && stage[k].parentNode) {
           stage[k].parentNode.removeChild(stage[k]);
@@ -537,7 +799,6 @@
       disposers = [];
       stage = null; geo = null; pageEls = []; revealNodes = [];
       playing = false;
-      burstPlayed = false;
       SC.setIntro(false);
       if (S3 && S3.sync) S3.sync();
       document.dispatchEvent(new CustomEvent('site:intro', { detail: { playing: false } }));
@@ -559,9 +820,7 @@
     if (playing) return;
     playing = true;
     finished = false;
-    burstPlayed = false;
     pace = PACE * speed();
-    /* CSS 侧的过渡 / 动画时长都乘这个变量，保证层间节奏与时间线同步 */
     root.style.setProperty('--intro-pace', pace.toFixed(3));
     markSeen();
     document.dispatchEvent(new CustomEvent('site:intro', { detail: { playing: true } }));
@@ -573,12 +832,10 @@
     document.documentElement.style.overflow = 'hidden';
 
     stage = buildStage();
-    /* 构造线要在页面还被盖着、但布局已经成立的时候量坐标；
-       它算出来的总时长直接改写第 ② 幕的幕长，时间线才跟得上画笔。 */
-    guide = buildGuide();
-    TIMING.sketch = guide.ms;
-    TIMING.air = guide.airMs;
-    collectReveal(guide.targets);
+    /* 粒子层要在页面还被盖着、但布局已经成立的时候建：
+       它算出的幕长直接改写时间线，演出才跟得上画笔。 */
+    paint = buildPaint();
+    collectReveal();
     hidePage();
 
     /* 画板淡入：插进去之后先强制一次重排，否则 opacity 从 0 到 1
@@ -588,9 +845,9 @@
       stage.paper.classList.add('is-in');
     }
 
-    geo.base.style.transition = 'none';
-    geo.base.style.opacity = '0';
-    geo.rings.forEach(function (g) { g.style.transition = 'none'; g.style.opacity = '0'; });
+    /* 演出期间真画整体压暗：画由粒子层逐步长出来，第⑥幕再交接 */
+    geo.host.style.transition = 'none';
+    geo.host.style.opacity = '0';
     revealNodes.forEach(function (r) {
       r.el.style.transition = 'none';
       r.el.style.translate = r.tx + ' ' + r.ty + ' -90px';
@@ -603,12 +860,10 @@
 
     var T1 = TIMING.quiet;
     var T2 = T1 + TIMING.sketch;
-    var T3 = T2 + TIMING.fill;
-    var T4 = T3 + TIMING.wake;
-    var T5 = T4 + TIMING.air;
-    var T6 = T5 + TIMING.flood;
-    var T7 = T6 + TIMING.settle;
-    var T8 = T7 + TIMING.reveal;
+    var T3 = T2 + TIMING.ignite;
+    var T4 = T3 + TIMING.paint;
+    var T5 = T4 + TIMING.settle;
+    var T6 = T5 + TIMING.reveal;
     start = 0; phase = 0;
 
     function frame(now) {
@@ -616,29 +871,17 @@
       var t = (now - start) / pace;
 
       if (t < T1) {
-        /* ① 空白画板 */
-        if (phase !== 1) enter(1);
+        if (phase !== 1) enter(1);        /* ① 空白画板 */
       } else if (t < T2) {
-        /* ② 构造线：起笔排期全在 CSS 动画里，这里不再写任何属性 */
-        if (phase !== 2) enter(2);
+        if (phase !== 2) enter(2);        /* ② 彩色构造线 + 种子 */
       } else if (t < T3) {
-        /* ③ 油画显影 */
-        if (phase !== 3) enter(3);
+        if (phase !== 3) enter(3);        /* ③ 月心点火 */
       } else if (t < T4) {
-        /* ④ 月心迸发：过半时甩笔 */
-        if (phase !== 4) enter(4);
-        var u = clamp((t - T3) / TIMING.wake, 0, 1);
-        if (!burstPlayed && u > .46 && burstFx) { burstFx.play(); burstPlayed = true; }
+        if (phase !== 4) enter(4);        /* ④ 引擎流水线（世界爆发） */
       } else if (t < T5) {
-        /* ⑤ 断线、绕涡心、落回版式 */
-        if (phase !== 5) enter(5);
+        if (phase !== 5) enter(5);        /* ⑤ 收束 */
       } else if (t < T6) {
-        /* ⑥ 世界爆发：夜空从月心漫开 */
-        if (phase !== 6) enter(6);
-      } else if (t < T7) {
-        if (phase !== 7) enter(7);
-      } else if (t < T8) {
-        if (phase !== 8) enter(8);
+        if (phase !== 6) enter(6);        /* ⑥ 主页显现 + 交接 */
       } else {
         finish();
         return;
@@ -647,9 +890,8 @@
     }
 
     raf = requestAnimationFrame(frame);
-    /* 兜底计时器：时间线按 T8/pace 走（对应真实毫秒 T8*pace），
-       这里必须乘，不能除 —— 除的话放慢系数一上来就变成"提前收场"。 */
-    guard = setTimeout(finish, T8 * pace + 1800);
+    /* 兜底计时器：时间线按 T6/pace 走（真实毫秒 = T6*pace），必须乘 */
+    guard = setTimeout(finish, T6 * pace + 2200);
   }
 
   /* 正在演的时候再点「重新开场」，不应该变成死键：
@@ -666,12 +908,8 @@
     requestPlay();
   });
 
-  /* 但「已经停在星月夜」的进站必须补一次演出。
-     主题存在 localStorage 里、且同一个 origin 全站共用，所以用户在主站
-     切过一次星月夜之后，再打开任何子路径（含 /v2/、/v3/ 这种预览环境）
-     首屏直接就是渲染完的油画，设置面板里的「星月夜」又正是当前项、
-     点它是个死键 —— 结果就是"动画加载不了"。这里按会话补播一次，
-     每个标签页、每个部署前缀只播一次，刷新不会重播。 */
+  /* 「已经停在星月夜」的进站必须补一次演出（每标签页、每部署前缀
+     一次），否则设置面板里的「星月夜」是死键、首屏直接是成品画。 */
   function autoplay() {
     if (playing || reduce()) return;
     if (root.dataset.view === 'reading') return;
@@ -685,12 +923,9 @@
     isPlaying: function () { return playing; },
     play: requestPlay,
     stop: finish,
-    /* 只给验收脚本用：当前幕号 + 构造线的落点表（真实边线坐标） */
     phase: function () { return phase; },
-    guideTargets: function () {
-      return guide ? guide.segs.map(function (s) {
-        return { x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, kind: s.kind };
-      }) : [];
-    }
+    /* 验收对账：每个粒子单元的落位中心 / 透明度 vs 构建期期望值 */
+    verify: function () { return paint ? paint.verify() : '{}'; },
+    counts: function () { return paint ? paint.counts : null; }
   };
 })();

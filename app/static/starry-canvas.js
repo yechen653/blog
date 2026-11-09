@@ -58,6 +58,13 @@
   var rings = [], baseLayer = null;
   var COMP = null, disposers = [], resizeRaf = 0, resizeBound = false;
 
+  /* ── 逐笔清单（供揭幕演出的颜料粒子层使用）────────────────────
+     Buckets 每画一笔就往这里记一条：坐标 / 流向角 / 长度 / 墨 / 档 /
+     路径串 / 区域标签。粒子层用它把同一批笔"重新演一遍"——每笔作为
+     独立元素从来源飞到落点，落定后的画面与真画逐像素同源。 */
+  var DABS = [];
+  function rec(e) { if (DABS.length < 24000) DABS.push(e); }
+
   function svg(tag, attrs) {
     var el = document.createElementNS(NS, tag);
     Object.keys(attrs || {}).forEach(function (k) { el.setAttribute(k, attrs[k]); });
@@ -127,9 +134,14 @@
     return { x: vx / L, y: vy / L };
   }
 
-  /* ── 笔触桶：按 (墨色 × 粗细档) 惰性分桶，最后一次性写 d ───── */
-  function Buckets(parent, recipe, rnd) {
+  /* ── 笔触桶：按 (墨色 × 粗细档) 惰性分桶，最后一次性写 d ─────
+     tag/cx/cy/ri/si 是给逐笔清单用的区域标签：g=区域（base / cloud /
+     hill / village / moon / ring:A… / star），vx/vy=所属涡心，
+     ri=圈层，si=星号。 */
+  function Buckets(parent, recipe, rnd, tag, cx, cy) {
     this.parent = parent; this.R = recipe; this.rnd = rnd;
+    this.tag = tag || ''; this.cx = cx || 0; this.cy = cy || 0;
+    this.ri = -1; this.si = -1;
     this.map = {}; this.runInk = -1; this.runLeft = 0; this.lastTier = -1;
   }
   Buckets.prototype._bucket = function (ink, tier) {
@@ -167,8 +179,12 @@
     var x1 = x - dx * len / 2, y1 = y - dy * len / 2;
     var x2 = x + dx * len / 2, y2 = y + dy * len / 2;
     var mx = x + nx * bow, my = y + ny * bow;
-    this._bucket(ink, tier).d.push(
-      'M' + rr(x1) + ' ' + rr(y1) + 'Q' + rr(mx) + ' ' + rr(my) + ' ' + rr(x2) + ' ' + rr(y2));
+    var frag = 'M' + rr(x1) + ' ' + rr(y1) +
+               'Q' + rr(mx) + ' ' + rr(my) + ' ' + rr(x2) + ' ' + rr(y2);
+    this._bucket(ink, tier).d.push(frag);
+    rec({ x: x, y: y, a: Math.atan2(dy, dx), l: len, k: ink, t: tier,
+          d: frag, g: this.tag, vx: this.cx, vy: this.cy,
+          ri: this.ri, si: this.si });
 
     /* 叠笔：更窄更亮、法向偏移 1~2px 的厚涂堆边 */
     if (rnd() < R.over) {
@@ -176,10 +192,13 @@
       var off = 1 + rnd() * 1.4, sgn = rnd() < .5 ? -1 : 1;
       var hx = x + nx * off * sgn, hy = y + ny * off * sgn;
       var hl = len * .52, hb = bow * .5;
-      this._bucket(hi, 3).d.push(
-        'M' + rr(hx - dx * hl / 2) + ' ' + rr(hy - dy * hl / 2) +
-        'Q' + rr(hx + nx * hb) + ' ' + rr(hy + ny * hb) + ' ' +
-        rr(hx + dx * hl / 2) + ' ' + rr(hy + dy * hl / 2));
+      var ofrag = 'M' + rr(hx - dx * hl / 2) + ' ' + rr(hy - dy * hl / 2) +
+                  'Q' + rr(hx + nx * hb) + ' ' + rr(hy + ny * hb) + ' ' +
+                  rr(hx + dx * hl / 2) + ' ' + rr(hy + dy * hl / 2);
+      this._bucket(hi, 3).d.push(ofrag);
+      rec({ x: hx, y: hy, a: Math.atan2(dy, dx), l: hl, k: hi, t: 3,
+            d: ofrag, g: this.tag, vx: this.cx, vy: this.cy,
+            ri: this.ri, si: this.si });
     }
   };
   Buckets.prototype.flush = function () {
@@ -204,7 +223,7 @@
   /* ── 天空底纹 + S 形云带 + 远山 + 村庄（静止层） ────────────── */
   function buildBase(C, rnd) {
     var g = svg('g', { 'class': 'sky-base' });
-    var B = new Buckets(g, RECIPES.base, rnd);
+    var B = new Buckets(g, RECIPES.base, rnd, 'base');
     /* 密网格 + 短步长：原画的天空几乎被并排短笔铺满，
        稀疏划线只会像噪点。这一层是静止的，密度可以放心加。 */
     var gx = Math.max(12, Math.round(C.W / (46 / DENSITY)));
@@ -219,7 +238,7 @@
     B.flush();
 
     /* S 形云带：原画最亮的一条带，从左上卷过主涡甩向副涡再向右 */
-    var cloud = new Buckets(g, RECIPES.cloud, rnd);
+    var cloud = new Buckets(g, RECIPES.cloud, rnd, 'cloud');
     var pts = [], t, px, py;
     var P0 = { x: -20, y: C.H * .38 }, P1 = { x: C.W * .24, y: C.H * .12 };
     var P2 = { x: C.W * .56, y: C.H * .62 }, P3 = { x: C.W + 20, y: C.H * .34 };
@@ -238,7 +257,7 @@
 
     /* 远山：先铺满山体带的横向短笔，再叠几条起伏的山脊线，
        避免地平线到村庄之间留出一大片纯色空洞。 */
-    var hill = new Buckets(g, RECIPES.hill, rnd);
+    var hill = new Buckets(g, RECIPES.hill, rnd, 'hill');
     var hn = Math.max(30, Math.round(C.W / (24 / DENSITY)));
     var hm = Math.max(8, Math.round((C.H * .87 - C.horizon) / (22 / DENSITY)));
     for (var hj = 0; hj < hm; hj++) {
@@ -261,7 +280,7 @@
     hill.flush();
 
     /* 村庄：横向短笔 + 点状橙窗光 */
-    var vil = new Buckets(g, RECIPES.village, rnd);
+    var vil = new Buckets(g, RECIPES.village, rnd, 'village');
     var vn = Math.max(18, Math.round(C.W / 42));
     for (var v = 0; v < vn; v++) {
       var vx2 = (v + .5) * C.W / vn;
@@ -280,7 +299,8 @@
       var g = svg('g', { 'class': 'v-ring', 'data-v': v.id, 'data-ring': ring ? 'outer' : 'inner' });
       g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
         rr(v.x) + 'px ' + rr(v.y) + 'px');
-      var B = new Buckets(g, recipe, rnd);
+      var B = new Buckets(g, recipe, rnd, 'ring:' + v.id, v.x, v.y);
+      B.ri = ring;
       var seeds = Math.round((ring ? 22 : 14) * DENSITY);
       for (var i = 0; i < seeds; i++) {
         var a = (i / seeds) * Math.PI * 2 + ring * .31 + rnd() * .5;
@@ -303,7 +323,8 @@
       var g = svg('g', { 'class': 'v-ring moon-ring', 'data-v': 'M', 'data-ring': ring ? 'outer' : 'inner' });
       g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
         rr(v.x) + 'px ' + rr(v.y) + 'px');
-      var B = new Buckets(g, RECIPES.moon, rnd);
+      var B = new Buckets(g, RECIPES.moon, rnd, 'moon', v.x, v.y);
+      B.ri = ring;
 
       /* ring 0 = 月盘本体；ring 1 = 外圈光晕
          光晕不能贴着盘沿画，否则只是"描了一圈边"；要有 3 道才能读出
@@ -354,8 +375,9 @@
     /* 星群归入静止层：11 颗星若做成 11 个旋转层，每帧重绘开销不划算，
        而原画里星本身是静态的发光球。 */
     var g = svg('g', { 'class': 'star-field' });
-    var B = new Buckets(g, RECIPES.star, rnd);
+    var B = new Buckets(g, RECIPES.star, rnd, 'star');
     C.stars.forEach(function (s, si) {
+      B.si = si;
       for (var k = 0; k < 3; k++) {
         var rad = s.r * (.24 + k * .32);
         var n = Math.max(9, Math.round(2 * Math.PI * rad / (9 / DENSITY)));
@@ -402,6 +424,7 @@
     host.appendChild(spinSvg);
     document.body.appendChild(host);
 
+    DABS.length = 0;                    /* resize 重画时清单重来 */
     baseLayer = buildBase(COMP, rng(20261108));
     baseLayer.appendChild(buildStars(COMP, 8821));
     staticSvg.appendChild(baseLayer);
@@ -457,7 +480,8 @@
     ensure();
     return {
       W: COMP.W, H: COMP.H, comp: COMP,
-      rings: rings, base: baseLayer, sky: sky, host: host
+      rings: rings, base: baseLayer, sky: sky, host: host,
+      dabs: DABS                          /* 逐笔清单，intro.js 的颜料粒子层从这里取数据 */
     };
   }
   /* 兼容旧调用：新架构无需交接，线条本来就是常驻节点 */

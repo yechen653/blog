@@ -35,7 +35,7 @@
   /* 本次会话是否已经看过演出的标记。键里带上【演出版本】——演出重做后
      老访客也能再自动看一次新版本；再带上部署前缀（/、/v2/、/v3/ 各自
      独立），否则同一个域名下看过主页的演出，预览环境里就再也不播了。 */
-  var SEEN = 'blog.intro.seen:paint5:';
+  var SEEN = 'blog.intro.seen:paint7:';
   try {
     var here = document.currentScript && document.currentScript.src;
     if (here) SEEN += here.replace(/static\/intro\.js.*$/, '');
@@ -79,7 +79,7 @@
     haloStart: 820,  haloSpread: 300, haloDur: 1200,      /* 月晕带旋入 */
     vortexStart: 420, vortexSpread: 260,                  /* 涡环自纺 */
     ringGap: 420, sectorSpread: 110, vortexDur: 1200,
-    chunkStart: 520, pieceStagger: 34, pieceDur: 1150,    /* A 路构造线段 */
+    chunkStart: 520, pieceStagger: 34, pieceDur: 1900,    /* A 路构造线段 */
     waveStart: 520,  waveSpan: 3000, waveSpanM: 2400,     /* B 路生长波 */
     starStart: 1520, starStag: 130, starDur: 1600,        /* 星（出发按波前距离对齐）*/
     moonSeedFade: 2500
@@ -146,6 +146,17 @@
       rg.addColorStop(1, '#081728');
       g2.fillStyle = rg;
       g2.fillRect(0, 0, 320, 320);
+      /* 边缘羽化烘焙进 alpha：硬边圆被 transform 放大十几倍后，圆的
+         抗锯齿边每帧重采样结果都不同，边界会"爬"（左带最明显）。
+         羽化后边界是软过渡，观感像夜色渗进纸里，抖动也看不见了。 */
+      g2.globalCompositeOperation = 'destination-in';
+      var fa = g2.createRadialGradient(160, 160, 90, 160, 160, 160);
+      fa.addColorStop(0, 'rgba(0,0,0,1)');
+      fa.addColorStop(.72, 'rgba(0,0,0,1)');
+      fa.addColorStop(1, 'rgba(0,0,0,0)');
+      g2.fillStyle = fa;
+      g2.fillRect(0, 0, 320, 320);
+      g2.globalCompositeOperation = 'source-over';
       flood.style.backgroundImage = 'url(' + cv.toDataURL('image/png') + ')';
       flood.style.backgroundSize = '100% 100%';
     } catch (e) { /* 取不到 canvas 就让底色兜底 */ }
@@ -308,6 +319,10 @@
     var WAVE = mob ? 2700 : 3400;
     var registry = [];
     var counts = { cellUnits: 0, cells: 0, moon: 0, rings: 0, stars: 0, pieces: 0 };
+    /* 所有轨道「相对 rotateStart 的最晚收尾时刻」。第④幕的幕长不再靠估算：
+       估算偏短会让幕⑤提前揭出真画，还在飞的颜料就"凭空出现"。 */
+    var schedMax = 0;
+    function markEnd(v) { if (v > schedMax) schedMax = v; }
 
     /* 与旧 guide 相同的"钉盒"套路：量出的像素定 viewBox，1 单位 = 1px。
        手机上地址栏收放会让视口高度变化，盒子一变而 viewBox 不变，
@@ -321,6 +336,21 @@
     svgL.style.right = 'auto';
     svgL.style.bottom = 'auto';
     svgL.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+
+    /* 飘带用独立 canvas 画，而不是 SVG <path>：飘带每帧都要改形状，
+       SVG 的 d 一变就要把整层重新光栅化，同一层里所有颜料单元的
+       抗锯齿都会跟着跳一下 —— 这就是"整片在闪"。canvas 每帧只重画
+       这 33 条笔画，其余单元的光栅完全不受影响。 */
+    var ink = document.createElement('canvas');
+    ink.className = 'intro-ink';
+    ink.width = Math.round(W);
+    ink.height = Math.round(H);
+    ink.style.width = W + 'px';
+    ink.style.height = H + 'px';
+    document.body.appendChild(ink);
+    var ictx = ink.getContext('2d');
+    ictx.lineCap = 'round';
+    ictx.lineJoin = 'round';
 
     /* 同 (墨×档) 的一束笔并成一个单元；每格/每扇区只保 KEEP 个桶，
        其余并进宽度最近的桶 —— 控制单元总数（桌面 ~420 / 移动 ~210）。 */
@@ -492,6 +522,7 @@
         var dl = ENG.waveStart + (dist / maxDist) * WAVE + hsh * 260 + u * 110;
         el.style.setProperty('--fl-dur', (dd2 * pace).toFixed(0) + 'ms');
         el.style.setProperty('--fl-delay', ((rotateStart + dl) * pace).toFixed(0) + 'ms');
+        markEnd(dl + dd2);
         push(el); reg(el, 'cell');
         counts.cellUnits++;
       });
@@ -534,7 +565,9 @@
       var dW = Math.atan2(d.y - pivot.y, d.x - pivot.x);
       var swing = ((dW - dC) * 180 / Math.PI) * dirSign;
       swing = ((swing % 360) + 360) % 360;
-      while (swing < 185) swing += 360;
+      /* 用户：不必真转半圈，有流动感即可。少转一点，飘带就不是"乱抡" */
+      if (swing < 90) swing += 360;
+      if (swing > 200) swing = 200;
       var spin = swing * dirSign;
 
       /* 弯的带符号长度：叉积定符号，落定帧 C 精确等于笔的控制点 */
@@ -545,6 +578,7 @@
         ((chx * bowY - chy * bowX) < 0 ? -1 : 1);
 
       var flStart = rotateStart + ENG.chunkStart + pi * ENG.pieceStagger;
+      markEnd(flStart - rotateStart + ENG.pieceDur);
 
       var path = SC.svg('path', {
         d: 'M' + pc.p0.x.toFixed(1) + ' ' + pc.p0.y.toFixed(1) +
@@ -567,6 +601,8 @@
         A0: PA, B0: PB, W1r: PW1, W2r: PW2,
         A0p: [pc.p0.x, pc.p0.y], B0p: [pc.p1.x, pc.p1.y],
         W1: W1, W2: W2, Wc: Wc, bowLen: bowLen,
+        col: I.c, alpha: I.o,
+        w0: clamp(dabW * .6, 2.6, 5), w1: dabW,
         done: false
       });
       reg(path, 'piece', (W1[0] + W2[0]) / 2, (W1[1] + W2[1]) / 2);
@@ -578,17 +614,15 @@
        位置 = 螺旋项（绕涡心转过去）与直线项（直接滑过去）按 (1-e)·.65
        混合：起跑绕得大、接近终点贴上去，落点仍精确等于笔的三点。 */
     function tickRibbons(t) {
+      /* 每帧整层重画：33 条笔画，代价可忽略；好处是飘带形状变化
+         不再引发 SVG 整层重光栅（那是"整片闪"的根源）。 */
+      ictx.clearRect(0, 0, W, H);
       for (var i = 0; i < ribbonPieces.length; i++) {
         var rb = ribbonPieces[i];
-        if (rb.done) continue;
-        var u = (t - rb.flStart) / ENG.pieceDur;
-        if (u <= 0) continue;
-        if (!rb.undashed) {
-          /* 起飞时清掉起笔用的虚线：d 每帧变长变短，而 dasharray 还是
-             最初那一段的长度 —— 路径一拉长就会露出虚线缺口，长度一跳
-             缺口就闪，正是"线条闪烁"的根源。 */
-          rb.el.style.strokeDasharray = 'none';
-          rb.el.style.strokeDashoffset = '0';
+        var u = clamp((t - rb.flStart) / ENG.pieceDur, 0, 1);
+        if (t < rb.flStart) continue;
+        if (!rb.undashed) {                 /* 起飞瞬间：SVG 那条收笔线隐身 */
+          rb.el.style.opacity = '0';
           rb.undashed = true;
         }
         var p = rb.pivot;
@@ -609,24 +643,16 @@
         var chx = B[0] - A[0], chy = B[1] - A[1], cl = Math.hypot(chx, chy) || 1;
         var bow = rb.bowLen * e1;
         var Cx = mx - chy / cl * bow, Cy = my + chx / cl * bow;
-        /* 每两帧刷一次 + 位移不足 0.35px 不写：柔和飘带不需要 60fps 的
-           d 重算，减半的主线程重绘能明显压住左侧排线的闪烁 */
-        rb.frame = (rb.frame || 0) + 1;
-        if ((rb.frame & 1) === 0) {
-          var lx = rb.px == null ? 1e9 : Math.abs(A[0] - rb.px) + Math.abs(A[1] - rb.py);
-          if (lx > .35) {
-            rb.px = A[0]; rb.py = A[1];
-            rb.el.setAttribute('d', 'M' + A[0].toFixed(1) + ' ' + A[1].toFixed(1) +
-              'Q' + Cx.toFixed(1) + ' ' + Cy.toFixed(1) + ' ' +
-              B[0].toFixed(1) + ' ' + B[1].toFixed(1));
-          }
+        if (u >= 1) {                       /* 落定帧 = 那支笔的三点，逐像素同源 */
+          A = rb.W1; B = rb.W2; Cx = rb.Wc[0]; Cy = rb.Wc[1];
         }
-        if (u >= 1) {
-          rb.el.setAttribute('d', 'M' + rb.W1[0].toFixed(1) + ' ' + rb.W1[1].toFixed(1) +
-            'Q' + rb.Wc[0].toFixed(1) + ' ' + rb.Wc[1].toFixed(1) + ' ' +
-            rb.W2[0].toFixed(1) + ' ' + rb.W2[1].toFixed(1));
-          rb.done = true;
-        }
+        ictx.globalAlpha = rb.alpha;
+        ictx.strokeStyle = rb.col;
+        ictx.lineWidth = rb.w0 + (rb.w1 - rb.w0) * e1;
+        ictx.beginPath();
+        ictx.moveTo(A[0], A[1]);
+        ictx.quadraticCurveTo(Cx, Cy, B[0], B[1]);
+        ictx.stroke();
       }
     }
 
@@ -673,6 +699,7 @@
         var dl = ENG.vortexStart + (vOrder[vid] || 0) * ENG.vortexSpread +
                  (ri ? ENG.ringGap : 0) + sec * ENG.sectorSpread;
         el.style.setProperty('--sp-delay', ((rotateStart + dl + u * 55) * pace).toFixed(0) + 'ms');
+        markEnd(dl + u * 55 + ENG.vortexDur);
         push(el); reg(el, 'ring');
         counts.rings++;
       });
@@ -702,6 +729,7 @@
       g.style.setProperty('--fl-dur', (ENG.starDur * pace).toFixed(0) + 'ms');
       g.style.setProperty('--fl-delay', (starDelay * pace).toFixed(0) + 'ms');
       var land = starDelay + ENG.starDur;
+      markEnd(land - rotateStart);
       var bands = [[], [], []];
       list.forEach(function (d) {
         var r = Math.hypot(d.x - s.x, d.y - s.y) / s.r;
@@ -775,24 +803,23 @@
         var dl = isDisk ? 160 + idx * ENG.diskSpread
                         : ENG.haloStart + idx * ENG.haloSpread;
         el.style.setProperty('--sp-delay', ((rotateStart + dl + u * 55) * pace).toFixed(0) + 'ms');
+        markEnd(dl + u * 55 + (isDisk ? ENG.diskDur : ENG.haloDur));
         push(el); reg(el, isDisk ? 'moon-disk' : 'moon-halo');
         counts.moon++;
       });
     });
 
     /* ── 5) 第④幕幕长 = 最晚收尾的轨道 ─────────────────────────── */
-    var pieceEnd = ENG.chunkStart + (pieces.length - 1) * ENG.pieceStagger +
-                   ENG.pieceDur + 220;
-    var starEnd = ENG.waveStart + WAVE + ENG.starDur + 250;
-    var waveEnd = ENG.waveStart + WAVE + 1600 + 180;
-    var vortexEnd = ENG.vortexStart + 2 * ENG.vortexSpread + ENG.ringGap +
-                    3 * ENG.sectorSpread + ENG.vortexDur + 120;
-    var moonEnd = ENG.haloStart + 2 * ENG.haloSpread + ENG.haloDur + 120;
-    TIMING.paint = Math.round(Math.max(pieceEnd, starEnd, waveEnd, vortexEnd, moonEnd));
+    /* 幕长 = 真实最晚收尾 + 余量（+60 是 rotateStart 相对幕②结束的偏移，
+       − ignite 是幕③的长度：轨道 delay 都从 rotateStart 起算，幕④从幕③末开始） */
+    TIMING.paint = Math.round(60 - TIMING.ignite + schedMax + 320);
 
     function verify() {
-      var bad = 0, worst = 0, at = null, opBad = 0;
+      var bad = 0, worst = 0, at = null, opBad = 0, canvas = 0;
       registry.forEach(function (u, i) {
+        /* 飘带落定后画在 canvas 上（SVG 那条起笔线已隐身），
+           它的落位由绘制坐标保证，不参与 DOM 对账 */
+        if (u.kind === 'piece') { canvas++; return; }
         var r = u.el.getBoundingClientRect();
         var dd = Math.hypot(r.left + r.width / 2 - u.x, r.top + r.height / 2 - u.y);
         if (dd > 2.5) {
@@ -815,7 +842,7 @@
       });
       return JSON.stringify({ total: registry.length, bad: bad,
         worst: Math.round(worst * 10) / 10, at: at, opBad: opBad,
-        samples: samples, counts: counts });
+        canvas: canvas, samples: samples, counts: counts });
     }
 
     /* 夜色扩张与生长波严格同半径：delay=波出发时刻，dur=波时长，
@@ -825,7 +852,7 @@
       durMs: Math.round(WAVE * pace),
       scaleEnd: clamp(maxDist * 1.06 / FLOOD_BASE, .02, 14).toFixed(3)
     };
-    return { el: svgL, verify: verify, counts: counts, tick: tickRibbons,
+    return { el: svgL, ink: ink, verify: verify, counts: counts, tick: tickRibbons,
              flood: floodCfg };
   }
 
@@ -858,7 +885,7 @@
     } else if (n === 6) {
       /* ⑥ 主页显现：粒子层淡出（底下就是逐像素同源的真画），
          页面元素带 Z 轴纵深错峰落位 */
-      if (paint) paint.el.classList.add('is-swap');
+      if (paint) { paint.el.classList.add('is-swap'); paint.ink.classList.add('is-swap'); }
       pageEls.forEach(function (el) {
         el.style.transition = 'opacity ' + dur(.5) + ' ease';
         el.style.opacity = '1';
@@ -902,6 +929,7 @@
   function teardown() {
     requestAnimationFrame(function () {
       if (paint && paint.el && paint.el.parentNode) paint.el.parentNode.removeChild(paint.el);
+      if (paint && paint.ink && paint.ink.parentNode) paint.ink.parentNode.removeChild(paint.ink);
       paint = null;
       ['paper', 'flood', 'ui'].forEach(function (k) {
         if (stage && stage[k] && stage[k].parentNode) {

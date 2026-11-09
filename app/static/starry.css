@@ -256,6 +256,14 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 }
 .intro-paint.is-swap{opacity:0}
 
+/* 飘带专用画布：每帧整层重画 33 条笔画。放在粒子层之上（原来 SVG 里
+   飘带也排在格子之后），淡出时与粒子层同步。 */
+.intro-ink{
+  position:fixed;left:0;top:0;z-index:9993;pointer-events:none;
+  transition:opacity calc(.45s * var(--intro-pace,1)) ease;
+}
+.intro-ink.is-swap{opacity:0}
+
 .ln-p{
   fill:none;stroke-linecap:round;stroke-linejoin:round;
   stroke-dasharray:var(--len);stroke-dashoffset:var(--len);

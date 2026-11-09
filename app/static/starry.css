@@ -236,6 +236,9 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 .intro-flood.is-fade{opacity:0;pointer-events:none}
 
 /* ── 颜料粒子层（揭幕演出专用，演完即拆）────────────────────
+   这是一张 canvas，不是 SVG 容器：会飞的颜料全部每帧整层重画，
+   不用几百个 SVG 元素 + CSS transform（那会引发整层重光栅、图层驱逐、
+   抗锯齿跳动，实测就是"闪烁 + 凭空出现"）。 */
    第②幕的构造线 / 种子与第④幕的所有颜料单元都画在这一层。
    全部单元的运动是构建期写好的 CSS transform / opacity 关键帧：
      · ln-p        第②幕的彩色构造线与种子：dasharray 收笔式起笔，
@@ -250,19 +253,20 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
                    同位同色交叉淡替
    演出期 setAttribute('d') = 0，主线程零逐帧写入。 */
 .intro-paint{
-  position:fixed;inset:0;width:100%;height:100%;z-index:9992;
+  position:fixed;inset:0;width:100%;height:100%;z-index:9993;
   pointer-events:none;overflow:visible;
   transition:opacity calc(.45s * var(--intro-pace,1)) ease;
 }
 .intro-paint.is-swap{opacity:0}
 
-/* 飘带专用画布：每帧整层重画 33 条笔画。放在粒子层之上（原来 SVG 里
-   飘带也排在格子之后），淡出时与粒子层同步。 */
-.intro-ink{
-  position:fixed;left:0;top:0;z-index:9993;pointer-events:none;
+/* 演出层：.intro-sketch 放第②幕的起笔线与种子（静态 SVG），
+   .intro-paint 是所有会飞的颜料（一张 canvas，每帧整层重画）。 */
+.intro-sketch{
+  position:fixed;inset:0;width:100%;height:100%;z-index:9992;
+  pointer-events:none;overflow:visible;
   transition:opacity calc(.45s * var(--intro-pace,1)) ease;
 }
-.intro-ink.is-swap{opacity:0}
+.intro-sketch.is-swap{opacity:0}
 
 .ln-p{
   fill:none;stroke-linecap:round;stroke-linejoin:round;

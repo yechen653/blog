@@ -271,33 +271,8 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 @keyframes ln-thick{to{stroke-width:var(--tw,2)}}
 
 .gk{transform-box:view-box;transform-origin:var(--ax) var(--ay)}
-/* A 路外层：绕涡心公转半圈以上并保持 —— 方向感来自"甩出"，不回卷 */
-.gk-orbit{
-  animation:chunk-orbit var(--fl-dur) cubic-bezier(.4,.05,.28,1) var(--fl-delay) both;
-  will-change:transform;
-}
-@keyframes chunk-orbit{
-  0%{transform:rotate(0deg)}
-  48%{transform:rotate(var(--spin))}
-  100%{transform:rotate(0deg)}
-}
-/* A 路内层：后半程滑向自己那支笔、转正到它的流向角 */
-.gk-i{
-  transform-box:view-box;transform-origin:var(--cx) var(--cy);
-  animation:piece-glide var(--fl-dur) cubic-bezier(.34,.06,.24,1) var(--fl-delay) both;
-}
-@keyframes piece-glide{
-  0%,40%{transform:translate(0,0) rotate(0deg)}
-  100%{transform:translate(var(--dx),var(--dy)) rotate(var(--rr))}
-}
-/* A 路路径：飞行后半程直线形变成那支笔的曲线（d 同结构 M+Q 可插值），
-   同时升档到它的粗细 —— 落定即真笔，不需要任何淡替 */
-.ln-piece{
-  animation:ink-draw var(--ink-dur) cubic-bezier(.42,.06,.32,1) var(--ink-delay) forwards,
-            piece-morph var(--mo-dur) ease var(--mo-delay,99999ms) forwards,
-            ln-thick .6s ease var(--thick-delay,99999ms) forwards;
-}
-@keyframes piece-morph{to{d:var(--fd)}}
+/* A 路飘带的运动不在 CSS：tickRibbons 逐帧重算 d（每帧 ~44 条小路径），
+   宽度渐粗仍走 CSS 过渡；其余单元全部是合成器关键帧 */
 
 /* 种子：涡环纺完、月盘长成后淡出让位 */
 .seed-g{animation:seed-fade .45s ease var(--fd-delay,99999ms) both}
@@ -315,9 +290,9 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 .pk-a{animation:pk-in var(--in-dur) ease var(--in-delay) both}
 .star-part{opacity:0;animation:star-ignite .32s ease var(--ig-delay,99999ms) both}
 @keyframes paint-fly{
-  0%{transform:rotate(var(--a0)) translate(var(--vx0),var(--vy0));opacity:0}
+  0%{transform:rotate(var(--a0)) translate(var(--vx0),var(--vy0)) scale(.22);opacity:0}
   20%{opacity:var(--op,1)}
-  100%{transform:rotate(0deg) translate(0,0);opacity:var(--op,1)}
+  100%{transform:rotate(0deg) translate(0,0) scale(1);opacity:var(--op,1)}
 }
 @keyframes paint-spin{
   0%{transform:rotate(var(--a0));opacity:0}

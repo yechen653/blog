@@ -35,7 +35,7 @@
   /* 本次会话是否已经看过演出的标记。键里带上【演出版本】——演出重做后
      老访客也能再自动看一次新版本；再带上部署前缀（/、/v2/、/v3/ 各自
      独立），否则同一个域名下看过主页的演出，预览环境里就再也不播了。 */
-  var SEEN = 'blog.intro.seen:paint2:';
+  var SEEN = 'blog.intro.seen:paint3:';
   try {
     var here = document.currentScript && document.currentScript.src;
     if (here) SEEN += here.replace(/static\/intro\.js.*$/, '');
@@ -77,7 +77,7 @@
     ringGap: 420, sectorSpread: 110, vortexDur: 1200,
     chunkStart: 420, pieceStagger: 34, pieceDur: 1150,    /* A 路构造线段 */
     waveStart: 520,  waveSpan: 3000, waveSpanM: 2400,     /* B 路生长波 */
-    starStart: 1520, starStag: 130, starDur: 1150,        /* 星 */
+    starStart: 1520, starStag: 130, starDur: 1600,        /* 星（出发按波前距离对齐）*/
     moonSeedFade: 2500
   };
 
@@ -366,6 +366,19 @@
        每条构造线出生就拆成小段（pieces），每段绑定一支真实的笔 ——
        第④幕逐段飞过去、d 形变成那一笔的曲线，落定即真笔。 */
     var got = collectLines(W, H);
+    /* 与种子圆相交的构造线直接不画：一根线穿过旋转点观感很差 */
+    function segHitsSeed(sg) {
+      return [C.A, C.B].some(function (v) {
+        var sr = v.r * .34 + 16;
+        var vx = v.x, vy = v.y;
+        var ax = sg.x1, ay = sg.y1, bx = sg.x2, by = sg.y2;
+        var dx = bx - ax, dy = by - ay;
+        var tt = clamp(((vx - ax) * dx + (vy - ay) * dy) /
+                       (dx * dx + dy * dy || 1), 0, 1);
+        return Math.hypot(vx - (ax + dx * tt), vy - (ay + dy * tt)) < sr;
+      });
+    }
+    got = got.filter(function (sg) { return !segHitsSeed(sg); });
     var items = [], pieces = [], j = 0;
     got.forEach(function (s) {
       var len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1);
@@ -463,8 +476,13 @@
       });
     });
 
-    /* 4b) A 路：每段线 → 公转半圈 → 飞到那支笔 → d 形变成它的曲线。
-       形变目标是"那支笔的坐标反算回线段局部系"——落定后与真笔逐像素同源。 */
+    /* 4b) A 路（飘带）：每段线的两端各沿一条绕涡心的螺旋轨迹运动，
+       尾端比首端晚 25% 出发 —— 线段在飞行中被自然拉长、甩弯，
+       像飘带一样拖向自己那支笔；落定帧精确等于那支笔的 M+Q 路径。
+       这 44 条小段由 tick(t) 逐帧重算 d（每帧 ~44 次、每次 ~80 字符），
+       演出期"setAttribute('d')=0"的不变量在这 44 条上让步；
+       其余 ~350 个单元仍是零写入的合成器动画。 */
+    var ribbonPieces = [];
     pieces.forEach(function (pc, pi) {
       var d = pc.dab;
       var I = INKc[d.k];
@@ -474,60 +492,105 @@
 
       var cxm = (pc.p0.x + pc.p1.x) / 2, cym = (pc.p0.y + pc.p1.y) / 2;
       var len = Math.hypot(pc.p1.x - pc.p0.x, pc.p1.y - pc.p0.y);
-      var pa = Math.atan2(pc.p1.y - pc.p0.y, pc.p1.x - pc.p0.x);
 
-      var g = SC.svg('g', { 'class': 'gk gk-orbit' });
+      /* 笔的三点：端1 / 控制点 / 端2（从记录的路径串反解） */
+      var m = /M(-?[\d.]+) (-?[\d.]+)Q(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)/.exec(d.d);
+      var W1 = [+m[1], +m[2]], Wc = [+m[3], +m[4]], W2 = [+m[5], +m[6]];
+
       var pivot = pivotFor(cxm, cym);
       var dirSign = pivot.dir < 0 ? -1 : 1;
-      var spin = dirSign * (185 + (pi % 4) * 9);
-      g.setAttribute('style', 'transform-box:view-box;transform-origin:' +
-        pivot.x.toFixed(1) + 'px ' + pivot.y.toFixed(1) + 'px');
+
+      /* 两端各自的极坐标起点（相对涡心） */
+      function polar(pt) {
+        return { a: Math.atan2(pt[1] - pivot.y, pt[0] - pivot.x),
+                 r: Math.hypot(pt[0] - pivot.x, pt[1] - pivot.y) };
+      }
+      var PA = polar([pc.p0.x, pc.p0.y]), PB = polar([pc.p1.x, pc.p1.y]);
+      var PW1 = polar(W1), PW2 = polar(W2);
+
+      /* 总转角按段中心方位差归一：跟随涡旋方向、补整圈保证 ≥185° 且 <545° */
+      var dC = Math.atan2(cym - pivot.y, cxm - pivot.x);
+      var dW = Math.atan2(d.y - pivot.y, d.x - pivot.x);
+      var swing = ((dW - dC) * 180 / Math.PI) * dirSign;
+      swing = ((swing % 360) + 360) % 360;
+      while (swing < 185) swing += 360;
+      var spin = swing * dirSign;
+
+      /* 弯的带符号长度：叉积定符号，落定帧 C 精确等于笔的控制点 */
+      var midW = [(W1[0] + W2[0]) / 2, (W1[1] + W2[1]) / 2];
+      var chx = W2[0] - W1[0], chy = W2[1] - W1[1];
+      var bowX = Wc[0] - midW[0], bowY = Wc[1] - midW[1];
+      var bowLen = Math.hypot(bowX, bowY) *
+        ((chx * bowY - chy * bowX) < 0 ? -1 : 1);
+
       var flStart = rotateStart + ENG.chunkStart + pi * ENG.pieceStagger;
-      g.style.setProperty('--spin', spin.toFixed(0) + 'deg');
-      void dirSign;
-      g.style.setProperty('--fl-dur', (ENG.pieceDur * pace).toFixed(0) + 'ms');
-      g.style.setProperty('--fl-delay', (flStart * pace).toFixed(0) + 'ms');
 
-      var gi = SC.svg('g', { 'class': 'gk-i' });
-      gi.setAttribute('style', 'transform-box:view-box;transform-origin:' +
-        cxm.toFixed(1) + 'px ' + cym.toFixed(1) + 'px');
-      gi.style.setProperty('--dx', (d.x - cxm).toFixed(1) + 'px');
-      gi.style.setProperty('--dy', (d.y - cym).toFixed(1) + 'px');
-      /* 外层末帧回卷到 0（CSS 里 48%→100% 从 spin 回到 0），
-         所以内层只需补齐笔的流向角：rr = 笔角 - 线段角 */
-      var rr = (d.a - pa) * 180 / Math.PI;
-      gi.style.setProperty('--rr', rr.toFixed(1) + 'deg');
-
-      /* 直线段写成 Q（控制点在弦上），形变目标 = 笔的路径反算回局部系：
-         local(p) = O + R(-rr)·(W - dc)，保证组合变换后世界坐标 = 真笔坐标 */
-      var m = /M(-?[\d.]+) (-?[\d.]+)Q(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)/.exec(d.d);
-      var co = [[+m[1], +m[2]], [+m[3], +m[4]], [+m[5], +m[6]]];
-      var cosr = Math.cos(-rr * Math.PI / 180), sinr = Math.sin(-rr * Math.PI / 180);
-      var tp = co.map(function (pt) {
-        var wx = pt[0] - d.x, wy = pt[1] - d.y;
-        return (cxm + wx * cosr - wy * sinr).toFixed(1) + ' ' +
-               (cym + wx * sinr + wy * cosr).toFixed(1);
-      });
       var path = SC.svg('path', {
         d: 'M' + pc.p0.x.toFixed(1) + ' ' + pc.p0.y.toFixed(1) +
            'Q' + cxm.toFixed(1) + ' ' + cym.toFixed(1) + ' ' +
            pc.p1.x.toFixed(1) + ' ' + pc.p1.y.toFixed(1),
-        fill: 'none', stroke: I.c, 'stroke-width': 1.6, 'class': 'ln-p ln-piece'
+        fill: 'none', stroke: I.c,
+        'stroke-width': clamp(dabW * .6, 2.6, 5).toFixed(2),
+        'class': 'ln-p ln-piece'
       });
       path.style.setProperty('--len', len.toFixed(1));
       path.style.setProperty('--ink-dur', (per * pace).toFixed(0) + 'ms');
       path.style.setProperty('--ink-delay', ((lineStart + pc.pi0 * per * .8) * pace).toFixed(0) + 'ms');
-      path.style.setProperty('--fd', 'path("M' + tp[0] + 'Q' + tp[1] + ' ' + tp[2] + '")');
-      path.style.setProperty('--mo-dur', (ENG.pieceDur * .45 * pace).toFixed(0) + 'ms');
-      path.style.setProperty('--mo-delay', ((flStart + ENG.pieceDur * .55) * pace).toFixed(0) + 'ms');
       path.style.setProperty('--tw', dabW.toFixed(2));
       path.style.setProperty('--thick-delay', ((flStart + ENG.pieceDur * .3) * pace).toFixed(0) + 'ms');
-      gi.appendChild(path);
-      g.appendChild(gi);
-      push(g);
-      reg(g, 'piece', d.x, d.y);
+      push(path);
+
+      ribbonPieces.push({
+        el: path, flStart: flStart,
+        pivot: pivot, spin: spin, dirSign: dirSign,
+        A0: PA, B0: PB, W1r: PW1, W2r: PW2,
+        A0p: [pc.p0.x, pc.p0.y], B0p: [pc.p1.x, pc.p1.y],
+        W1: W1, W2: W2, Wc: Wc, bowLen: bowLen,
+        done: false
+      });
+      reg(path, 'piece', (W1[0] + W2[0]) / 2, (W1[1] + W2[1]) / 2);
       counts.pieces++;
     });
+
+    /* 飘带逐帧驱动：u = (t - flStart)/dur，smoothstep 缓动；
+       首端满速、尾端晚 25% 出发 —— 路径被自然拉长甩弯。
+       位置 = 螺旋项（绕涡心转过去）与直线项（直接滑过去）按 (1-e)·.65
+       混合：起跑绕得大、接近终点贴上去，落点仍精确等于笔的三点。 */
+    function tickRibbons(t) {
+      for (var i = 0; i < ribbonPieces.length; i++) {
+        var rb = ribbonPieces[i];
+        if (rb.done) continue;
+        var u = (t - rb.flStart) / ENG.pieceDur;
+        if (u <= 0) continue;
+        var p = rb.pivot;
+        function ribbonEnd(pr0, prW, pt0, ptW, uu) {
+          var e = uu * uu * (3 - 2 * uu);
+          var ang = pr0.a + (prW.a - pr0.a) * e;
+          var rad = pr0.r + (prW.r - pr0.r) * e;
+          var ax = p.x + Math.cos(ang) * rad, ay = p.y + Math.sin(ang) * rad;
+          var lx = pt0[0] + (ptW[0] - pt0[0]) * e, ly = pt0[1] + (ptW[1] - pt0[1]) * e;
+          var w = (1 - e) * .65;
+          return [ax * w + lx * (1 - w), ay * w + ly * (1 - w)];
+        }
+        var uB = clamp((u - .25) / .75, 0, 1);
+        var A = ribbonEnd(rb.A0, rb.W1r, rb.A0p, rb.W1, u);
+        var B = ribbonEnd(rb.B0, rb.W2r, rb.B0p, rb.W2, uB);
+        var mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2;
+        var e1 = u * u * (3 - 2 * u);
+        var chx = B[0] - A[0], chy = B[1] - A[1], cl = Math.hypot(chx, chy) || 1;
+        var bow = rb.bowLen * e1;
+        var Cx = mx - chy / cl * bow, Cy = my + chx / cl * bow;
+        rb.el.setAttribute('d', 'M' + A[0].toFixed(1) + ' ' + A[1].toFixed(1) +
+          'Q' + Cx.toFixed(1) + ' ' + Cy.toFixed(1) + ' ' +
+          B[0].toFixed(1) + ' ' + B[1].toFixed(1));
+        if (u >= 1) {
+          rb.el.setAttribute('d', 'M' + rb.W1[0].toFixed(1) + ' ' + rb.W1[1].toFixed(1) +
+            'Q' + rb.Wc[0].toFixed(1) + ' ' + rb.Wc[1].toFixed(1) + ' ' +
+            rb.W2[0].toFixed(1) + ' ' + rb.W2[1].toFixed(1));
+          rb.done = true;
+        }
+      }
+    }
 
     /* 4c) 种子圆：主涡 / 副涡各一圈，涡环纺完后淡出让位 */
     [C.A, C.B].forEach(function (v, idx) {
@@ -598,9 +661,11 @@
       g.style.setProperty('--a0', (-(70 + hsh * 90)).toFixed(0) + 'deg');
       g.style.setProperty('--vx0', (M.x + r0 * Math.cos(a) - s.x).toFixed(1) + 'px');
       g.style.setProperty('--vy0', (M.y + r0 * Math.sin(a) - s.y).toFixed(1) + 'px');
-      var land = rotateStart + ENG.starStart + si * ENG.starStag + ENG.starDur;
+      /* 出发时刻对齐波前：波前到达这颗星的距离时，它才从月沿起飞 */
+      var starDelay = rotateStart + ENG.waveStart + (dist / maxDist) * WAVE;
       g.style.setProperty('--fl-dur', (ENG.starDur * pace).toFixed(0) + 'ms');
-      g.style.setProperty('--fl-delay', ((rotateStart + ENG.starStart + si * ENG.starStag) * pace).toFixed(0) + 'ms');
+      g.style.setProperty('--fl-delay', (starDelay * pace).toFixed(0) + 'ms');
+      var land = starDelay + ENG.starDur;
       var bands = [[], [], []];
       list.forEach(function (d) {
         var r = Math.hypot(d.x - s.x, d.y - s.y) / s.r;
@@ -612,7 +677,11 @@
           .forEach(function (bg) {
             bg.kept.forEach(function (b) {
               var el = mkUnit(b.d, 'star-part');
-              el.style.setProperty('--ig-delay', ((land + (bd === 0 ? -160 : (bd - 1) * 150)) * pace).toFixed(0) + 'ms');
+              /* 核在起飞 12% 点亮，两圈晕环 45% / 80% 依次点亮 ——
+                 星星是"长着"从月沿飞过去的，不落地闪现 */
+              var ig = starDelay + ENG.starDur *
+                (bd === 0 ? .12 : bd === 1 ? .45 : .78);
+              el.style.setProperty('--ig-delay', (ig * pace).toFixed(0) + 'ms');
               g.appendChild(el);
             });
           });
@@ -678,7 +747,7 @@
     /* ── 5) 第④幕幕长 = 最晚收尾的轨道 ─────────────────────────── */
     var pieceEnd = ENG.chunkStart + (pieces.length - 1) * ENG.pieceStagger +
                    ENG.pieceDur + 220;
-    var starEnd = ENG.starStart + 10 * ENG.starStag + ENG.starDur + 400;
+    var starEnd = ENG.waveStart + WAVE + ENG.starDur + 250;
     var waveEnd = ENG.waveStart + WAVE + 1600 + 180;
     var vortexEnd = ENG.vortexStart + 2 * ENG.vortexSpread + ENG.ringGap +
                     3 * ENG.sectorSpread + ENG.vortexDur + 120;
@@ -713,7 +782,15 @@
         samples: samples, counts: counts });
     }
 
-    return { el: svgL, verify: verify, counts: counts };
+    /* 夜色扩张与生长波严格同半径：delay=波出发时刻，dur=波时长，
+       终态半径 = 最远格子的距离（略加余量） */
+    var floodCfg = {
+      delayMs: Math.round((rotateStart - (TIMING.quiet + sketchMs) + ENG.waveStart) * pace),
+      durMs: Math.round(WAVE * pace),
+      scaleEnd: clamp(maxDist / maxR * 1.04, .2, 1.06).toFixed(3)
+    };
+    return { el: svgL, verify: verify, counts: counts, tick: tickRibbons,
+             flood: floodCfg };
   }
 
   /* ── 幕切换：每幕只做一次写入 ───────────────────────────────── */
@@ -723,16 +800,18 @@
     if (n === 2) {
       /* ② 构造线与种子的起笔排期全在 CSS 动画里，这里无需写入 */
     } else if (n === 3) {
-      /* ③ 月心点火：种子旋转的 delay 也写死在构建期，这里只记账 */
-    } else if (n === 4) {
-      /* ④ 引擎流水线开跑：夜色从月心随生长波漫开（压在颜料下面，
-         纸上没画到的部分开始被夜空接管 —— 世界从这一幕就开始爆发） */
-      if (stage.flood) {
+      /* ③ 月心点火：种子旋转写在构建期；夜色的扩张半径从这一刻起
+         与颜料生长波严格同步 —— duration = 波时长、delay = 波出发、
+         线性推进，边界 = 波前 = 纯圆弧 */
+      if (stage.flood && paint) {
         stage.flood.style.transition =
-          'transform ' + Math.round((TIMING.paint - 150) * pace) + 'ms linear,' +
-          'opacity ' + dur(.5) + ' ease';
+          'transform ' + paint.flood.durMs + 'ms linear ' + paint.flood.delayMs + 'ms,' +
+          'opacity .9s ease ' + paint.flood.delayMs + 'ms';
+        stage.flood.style.transform = 'scale(' + paint.flood.scaleEnd + ')';
         stage.flood.classList.add('is-open');
       }
+    } else if (n === 4) {
+      /* ④ 引擎流水线（排期全在构建期写好，这里只记账） */
     } else if (n === 5) {
       /* ⑤ 收束：画板退场，夜色 + 长成的画留在台上 */
       if (stage.paper) stage.paper.classList.add('is-fade');
@@ -866,6 +945,7 @@
       if (!start) start = now;
       var t = (now - start) / pace;
 
+      if (paint && paint.tick) paint.tick(t);
       if (t < T1) {
         if (phase !== 1) enter(1);        /* ① 空白画板 */
       } else if (t < T2) {

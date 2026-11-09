@@ -35,7 +35,7 @@
   /* 本次会话是否已经看过演出的标记。键里带上【演出版本】——演出重做后
      老访客也能再自动看一次新版本；再带上部署前缀（/、/v2/、/v3/ 各自
      独立），否则同一个域名下看过主页的演出，预览环境里就再也不播了。 */
-  var SEEN = 'blog.intro.seen:paint8:';
+  var SEEN = 'blog.intro.seen:paint10:';
   try {
     var here = document.currentScript && document.currentScript.src;
     if (here) SEEN += here.replace(/static\/intro\.js.*$/, '');
@@ -126,40 +126,15 @@
     paper.className = 'intro-paper';
     paper.setAttribute('aria-hidden', 'true');
 
-    var flood = document.createElement('div');
-    flood.className = 'intro-flood';
-    /* 布局尺寸给小、半径靠 transform 放大：宽高动画每帧都要重排重绘
-       巨大元素（实测掉到 26fps），缩放走合成器更便宜。 */
-    flood.style.width = flood.style.height = (FLOOD_BASE * 2) + 'px';
-    flood.style.left = (M.x - FLOOD_BASE).toFixed(0) + 'px';
-    flood.style.top = (M.y - FLOOD_BASE).toFixed(0) + 'px';
-    /* 夜色的一次性烘焙：渐变画进 canvas 转位图。用 CSS 渐变的话，
-       圆盘每放大一帧就要重新光栅一次渐变（实测把幕④拖到 27fps），
-       位图缩放只是重采样，便宜一个量级。 */
-    try {
-      var cv = document.createElement('canvas');
-      cv.width = cv.height = 320;
-      var g2 = cv.getContext('2d');
-      var rg = g2.createRadialGradient(160, 40, 10, 160, 40, 300);
-      rg.addColorStop(0, '#1b3a6b');
-      rg.addColorStop(.58, '#10233f');
-      rg.addColorStop(1, '#081728');
-      g2.fillStyle = rg;
-      g2.fillRect(0, 0, 320, 320);
-      /* 边缘羽化烘焙进 alpha：硬边圆被 transform 放大十几倍后，圆的
-         抗锯齿边每帧重采样结果都不同，边界会"爬"（左带最明显）。
-         羽化后边界是软过渡，观感像夜色渗进纸里，抖动也看不见了。 */
-      g2.globalCompositeOperation = 'destination-in';
-      var fa = g2.createRadialGradient(160, 160, 90, 160, 160, 160);
-      fa.addColorStop(0, 'rgba(0,0,0,1)');
-      fa.addColorStop(.72, 'rgba(0,0,0,1)');
-      fa.addColorStop(1, 'rgba(0,0,0,0)');
-      g2.fillStyle = fa;
-      g2.fillRect(0, 0, 320, 320);
-      g2.globalCompositeOperation = 'source-over';
-      flood.style.backgroundImage = 'url(' + cv.toDataURL('image/png') + ')';
-      flood.style.backgroundSize = '100% 100%';
-    } catch (e) { /* 取不到 canvas 就让底色兜底 */ }
+    /* 夜色不再用 DOM 圆盘 + transform 放大：那张 320px 位图被放大十几倍后
+       渐变色带会随缩放一起漂移，整块背景看起来在"爬"（实测每帧平坦区亮度
+       抖动 5 个色阶）。改为在颜料 canvas 里按屏幕分辨率逐帧画径向渐变。 */
+
+    /* 点击任意位置 = 跳过演出（铺满全屏的透明接收层，压在所有演出层之上、
+       跳过按钮之下） */
+    var catchAll = document.createElement('div');
+    catchAll.className = 'intro-catch';
+    catchAll.setAttribute('aria-hidden', 'true');
 
     var ui = document.createElement('div');
     ui.className = 'intro-ui';
@@ -171,10 +146,10 @@
     ui.appendChild(skip);
 
     document.body.appendChild(paper);
-    document.body.appendChild(flood);
+    document.body.appendChild(catchAll);
     document.body.appendChild(ui);
 
-    return { paper: paper, flood: flood, ui: ui, skip: skip };
+    return { paper: paper, catchAll: catchAll, ui: ui, skip: skip };
   }
 
   function hidePage() {
@@ -347,10 +322,15 @@
        所有会飞的颜料走 canvas */
     function push(el) { svgL.appendChild(el); return el; }
 
+    /* 背板按设备像素比建：Windows 上常见 125% / 150% 缩放，若背板只有
+       CSS 尺寸，浏览器会把每一帧上采样一遍 —— 移动的笔触亚像素位置一变
+       就被双线性重采样，观感就是"闪"。按 dpr 建板 + 1 单位 = 1 设备像素，
+       内容与屏幕像素一一对应，不再有这层重采样。（上限定 2，省内存。） */
+    var DPR = clamp(window.devicePixelRatio || 1, 1, 2);
     var cv = document.createElement('canvas');
     cv.className = 'intro-paint';
-    cv.width = Math.round(W);
-    cv.height = Math.round(H);
+    cv.width = Math.round(W * DPR);
+    cv.height = Math.round(H * DPR);
     /* 定位全部写成内联：canvas 是 JS 现建的，别让它依赖样式表命中
        （命中不了就退回普通文档流，画在页面最底下，谁也看不见）。 */
     cv.style.cssText = 'position:fixed;left:0;top:0;z-index:9993;' +
@@ -364,8 +344,8 @@
        一次整层贴图。好处一是便宜（实测幕④从 47fps 回到 60fps），
        二是落定区域逐帧完全一致 —— 不会再有"已经落好的地方还在抖"。 */
     var bake = document.createElement('canvas');
-    bake.width = Math.round(W);
-    bake.height = Math.round(H);
+    bake.width = Math.round(W * DPR);
+    bake.height = Math.round(H * DPR);
     var bctx = bake.getContext('2d');
     bctx.lineCap = 'round';
     bctx.lineJoin = 'round';
@@ -374,7 +354,7 @@
       c.globalAlpha = D.alpha;
       c.strokeStyle = D.col;
       c.lineWidth = D.w;
-      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.setTransform(DPR, 0, 0, DPR, 0, 0);
       if (e != null) {
         if (U.kind === 'fly') {
           c.translate(U.fx * (1 - e), U.fy * (1 - e));
@@ -770,10 +750,26 @@
 
     /* ── 6) 每帧整层重画 ───────────────────────────────────────── */
     function tick(t) {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       ctx.globalAlpha = 1;
       ctx.clearRect(0, 0, W, H);
-      ctx.drawImage(bake, 0, 0);
+      /* ① 夜色：半径 = 波前，边缘羽化到全透明，按屏幕分辨率现画 */
+      var np = clamp((t - night.start) / night.dur, 0, 1);
+      if (np > 0) {
+        var R = night.maxR * np;
+        var na = clamp((t - night.start) / night.fade, 0, 1);
+        var ng = ctx.createRadialGradient(night.x, night.y, 0, night.x, night.y, R);
+        ng.addColorStop(0, 'rgba(38,76,132,1)');
+        ng.addColorStop(.45, 'rgba(21,45,78,1)');
+        ng.addColorStop(.86, 'rgba(10,25,44,1)');
+        ng.addColorStop(.97, 'rgba(8,20,36,.92)');
+        ng.addColorStop(1, 'rgba(8,20,36,0)');
+        ctx.globalAlpha = na;
+        ctx.fillStyle = ng;
+        ctx.fillRect(0, 0, W, H);
+        ctx.globalAlpha = 1;
+      }
+      ctx.drawImage(bake, 0, 0, W, H);
       for (var i = 0; i < units.length; i++) {
         var U = units[i], D = U.dab;
         if (t < U.vs) continue;
@@ -830,7 +826,7 @@
         target.stroke();
         target.globalAlpha = 1;
       }
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       ctx.globalAlpha = 1;
     }
 
@@ -854,14 +850,18 @@
       });
     }
 
-    /* 夜色扩张与生长波严格同半径 */
-    var floodCfg = {
-      delayMs: Math.round((rotateStart - (TIMING.quiet + sketchMs) + ENG.waveStart) * pace),
-      durMs: Math.round(WAVE * pace),
-      scaleEnd: clamp(maxDist * 1.06 / FLOOD_BASE, .02, 14).toFixed(3)
+    /* 夜色：半径与生长波严格同一条曲线（波到哪儿，夜就漫到哪儿），
+       在 canvas 里按屏幕分辨率画径向渐变 —— 不再放大位图，也就没有
+       色带随缩放漂移的问题。 */
+    var night = {
+      x: M.x, y: M.y,
+      start: rotateStart + ENG.waveStart,
+      dur: WAVE,
+      maxR: Math.max(maxDist * 1.06, 200),
+      fade: Math.round(900 / pace)          /* 0.9s 淡入（换算成时间轴单位） */
     };
     return { el: cv, sketch: svgL, verify: verify, counts: counts,
-             tick: tick, flood: floodCfg, dbg: { units: units, cv: cv, ctx: ctx } };
+             tick: tick, night: night, dbg: { units: units, cv: cv, ctx: ctx } };
   }
 
   /* ── 幕切换：每幕只做一次写入 ───────────────────────────────── */
@@ -874,13 +874,7 @@
       /* ③ 月心点火：种子旋转写在构建期；夜色的扩张半径从这一刻起
          与颜料生长波严格同步 —— duration = 波时长、delay = 波出发、
          线性推进，边界 = 波前 = 纯圆弧 */
-      if (stage.flood && paint) {
-        stage.flood.style.transition =
-          'transform ' + paint.flood.durMs + 'ms linear ' + paint.flood.delayMs + 'ms,' +
-          'opacity .9s ease ' + paint.flood.delayMs + 'ms';
-        stage.flood.style.transform = 'scale(' + paint.flood.scaleEnd + ')';
-        stage.flood.classList.add('is-open');
-      }
+      /* 夜色在 canvas 里按时间逐帧画（半径与生长波同步），这里无需写入 */
     } else if (n === 4) {
       /* ④ 引擎流水线（排期全在构建期写好，这里只记账） */
     } else if (n === 5) {
@@ -942,7 +936,7 @@
       if (paint && paint.el && paint.el.parentNode) paint.el.parentNode.removeChild(paint.el);
       if (paint && paint.sketch && paint.sketch.parentNode) paint.sketch.parentNode.removeChild(paint.sketch);
       paint = null;
-      ['paper', 'flood', 'ui'].forEach(function (k) {
+      ['paper', 'catchAll', 'ui'].forEach(function (k) {
         if (stage && stage[k] && stage[k].parentNode) {
           stage[k].parentNode.removeChild(stage[k]);
         }
@@ -1007,7 +1001,7 @@
     });
 
     on(stage.skip, 'click', finish);
-    on(stage.flood, 'click', finish);
+    on(stage.catchAll, 'click', finish);
     on(document, 'keydown', function (ev) { if (ev.key === 'Escape') finish(); });
 
     var T1 = TIMING.quiet;

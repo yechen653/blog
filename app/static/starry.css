@@ -210,30 +210,25 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
   position:fixed;inset:0;z-index:9990;
   pointer-events:none;
   background-color:#efe9dc;
+  /* 纸纹：原来是 1px/4px 的 repeating-linear-gradient。这种细网格在合成层
+     被逐帧重采样时会起摩尔纹 —— 整片奶油纸看起来在抖。换成一次性光栅的
+     噪声颗粒：没有周期性，不会跟像素栅格打架。 */
   background-image:
-    repeating-linear-gradient(0deg,rgba(120,100,70,.045) 0 1px,transparent 1px 4px),
-    repeating-linear-gradient(90deg,rgba(120,100,70,.035) 0 1px,transparent 1px 5px),
+    url("data:image/svg+xml;charset=utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.05'/></svg>"),
     radial-gradient(ellipse at 50% 45%,rgba(255,255,255,.5),rgba(160,140,105,.12) 100%);
   opacity:0;transition:opacity calc(.45s * var(--intro-pace,1)) ease;
 }
 .intro-paper.is-in{opacity:1}
 .intro-paper.is-fade{opacity:0}
 
-/* 夜盘：从月心长出的夜空色圆盘，压在【画层下面】。
-   这样笔触全程不被遮住，变的是"纸"被夜空替换 —— 正是第 ⑤ 幕要的
-   "星月夜底色从月亮中蔓延出来"。transform 缩放由合成器完成，
-   演出期间零逐帧重绘。 */
-.intro-flood{
-  position:fixed;z-index:9991;pointer-events:auto;
-  border-radius:50%;opacity:0;transform-origin:center;
-  transform:scale(.012);
-  transition:transform calc(1.05s * var(--intro-pace,1)) cubic-bezier(.32,.72,.24,1),
-             opacity calc(.55s * var(--intro-pace,1)) ease;
-  background-color:#10233f;
-  background-image:radial-gradient(ellipse at 50% 8%,#1b3a6b 0%,#10233f 58%,#081728 100%);
+/* 点击接收层：演出期间铺满全屏，点任意位置 = 跳过。
+   压在颜料 canvas（9993）之上、跳过按钮（9999）之下。 */
+.intro-catch{
+  position:fixed;inset:0;z-index:9998;background:transparent;cursor:pointer;
 }
-.intro-flood.is-open{transform:scale(1.06);opacity:1}
-.intro-flood.is-fade{opacity:0;pointer-events:none}
+/* 夜盘不再是 DOM 元素（曾经是一个 320px 位图被 transform 放大十几倍，
+   渐变色带会随缩放漂移 —— 整块背景看起来在爬）。现在由 intro.js 在颜料
+   canvas 里按屏幕分辨率逐帧画径向渐变，半径与生长波同一条曲线。 */
 
 /* ── 颜料粒子层（揭幕演出专用，演完即拆）────────────────────
    这是一张 canvas，不是 SVG 容器：会飞的颜料全部每帧整层重画，
@@ -392,7 +387,7 @@ body[data-page="profile"] .masthead-inner .nav{margin-left:auto}
 
 @media(prefers-reduced-motion:reduce){
   .v-ring{animation:none}
-  .intro-paper,.intro-flood{transition:none}
+  .intro-paper{transition:none}
   .ln-p,.pk,.star-part,.seed-g,.seed-moon-fill,.seed-mark{animation:none;opacity:1;transform:none}
   :root.is-3d .masthead-inner,
   :root.is-3d .hero > *,

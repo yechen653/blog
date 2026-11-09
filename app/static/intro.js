@@ -35,7 +35,7 @@
   /* 本次会话是否已经看过演出的标记。键里带上【演出版本】——演出重做后
      老访客也能再自动看一次新版本；再带上部署前缀（/、/v2/、/v3/ 各自
      独立），否则同一个域名下看过主页的演出，预览环境里就再也不播了。 */
-  var SEEN = 'blog.intro.seen:paint10:';
+  var SEEN = 'blog.intro.seen:paint11:';
   try {
     var here = document.currentScript && document.currentScript.src;
     if (here) SEEN += here.replace(/static\/intro\.js.*$/, '');
@@ -853,11 +853,15 @@
     /* 夜色：半径与生长波严格同一条曲线（波到哪儿，夜就漫到哪儿），
        在 canvas 里按屏幕分辨率画径向渐变 —— 不再放大位图，也就没有
        色带随缩放漂移的问题。 */
+    /* 终态半径必须盖住整块视口，不能只盖到"最远那支笔" —— 否则左下角
+       （离月最远、又没有笔触落在那里）会留一块奶油纸。渐变在 86% 处
+       开始羽化，所以要把角点距离换算到羽化之前：R = 角点 / .86。 */
+    var cornerR = Math.hypot(Math.max(M.x, W - M.x), Math.max(M.y, H - M.y));
     var night = {
       x: M.x, y: M.y,
       start: rotateStart + ENG.waveStart,
       dur: WAVE,
-      maxR: Math.max(maxDist * 1.06, 200),
+      maxR: Math.max(maxDist * 1.06, cornerR / .86, 200),
       fade: Math.round(900 / pace)          /* 0.9s 淡入（换算成时间轴单位） */
     };
     return { el: cv, sketch: svgL, verify: verify, counts: counts,
